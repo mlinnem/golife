@@ -117,7 +117,8 @@ func (p *Pool) Return(c *Cell) {
 
 //TODO: Make it easy to add a field and have it appear in all the right places Re: copying and whatnot
 type Cell struct {
-	energy         float64
+	_energy        float64
+	dead           bool
 	x              int
 	y              int
 	timeLeftToWait int
@@ -146,10 +147,21 @@ type Cell struct {
 	speciesColor                      *TextColorBookend
 }
 
+func (cell *Cell) decreaseEnergy(amt float64) {
+	cell._energy -= amt
+	if cell._energy < 0 {
+		cell.dead = true
+	}
+}
+
+func (cell *Cell) increaseEnergy(amt float64) {
+	cell._energy += amt
+}
+
 func (oldCell *Cell) Copy() *Cell {
 	//TODO: Can this not be done by just a generic struct copy?
 	var newCell = cellPool.Borrow()
-	newCell.energy = oldCell.energy
+	newCell._energy = oldCell._energy
 	newCell.age = oldCell.age
 	newCell.x = oldCell.x
 	newCell.y = oldCell.y
@@ -189,7 +201,7 @@ func (cell *Cell) Maintain() {
 	if cell.canopy {
 		totalUpkeep += CANOPY_UPKEEP
 	}
-	cell.energy -= (totalUpkeep * float64(cell.age)) / CELL_LIFESPAN
+	cell.decreaseEnergy((totalUpkeep * float64(cell.age)) / CELL_LIFESPAN)
 	cell.age += 1
 }
 
@@ -427,7 +439,7 @@ func main() {
 func makeCanopyBuildConditionOnCertainEnergy(energyLevel float64) func(*Cell) bool {
 	var makeCanopyEnergyThreshold = energyLevel
 	var buildConditionFunction = func(cell *Cell) bool {
-		return cell.canopy == false && cell.energy > makeCanopyEnergyThreshold
+		return cell.canopy == false && cell._energy > makeCanopyEnergyThreshold
 	}
 	return buildConditionFunction
 }
@@ -493,7 +505,7 @@ func printGrid(moment *Moment) {
 			legsTotal += 1
 			moveChanceTotal += cell.moveChance
 		}
-		log(LOGTYPE_PRINTGRIDCELLS, "(Cell) %d: %d,%d with %f, age %d, reprod at %f, grew canopy at %f, reproduces with %f\n", ci, moment.cells[ci].x, moment.cells[ci].y, moment.cells[ci].energy, moment.cells[ci].age, moment.cells[ci].energyReproduceThreshold, moment.cells[ci].growCanopyAt, cell.energySpentOnReproducing)
+		log(LOGTYPE_PRINTGRIDCELLS, "(Cell) %d: %d,%d with %f, age %d, reprod at %f, grew canopy at %f, reproduces with %f\n", ci, moment.cells[ci].x, moment.cells[ci].y, moment.cells[ci]._energy, moment.cells[ci].age, moment.cells[ci].energyReproduceThreshold, moment.cells[ci].growCanopyAt, cell.energySpentOnReproducing)
 	}
 
 	log(LOGTYPE_PRINTGRID_SUMMARY, "-----SUMMARY STATE-----\n")
@@ -659,11 +671,11 @@ foundSpot:
 	if !isThereASpotToReproduce {
 		return false
 	}
-	return cell.energy > cell.energyReproduceThreshold
+	return cell._energy > cell.energyReproduceThreshold
 }
 
 func (cell *Cell) isReadyToGrowCanopy() bool {
-	return cell.canopy == false && cell.energy > cell.growCanopyAt
+	return cell.canopy == false && cell._energy > cell.growCanopyAt
 }
 
 func (cell *Cell) wantsToAndCanMove() bool {
@@ -683,11 +695,11 @@ foundSpot:
 	if !isThereASpotToMove {
 		return false
 	}
-	return cell.energy > MOVE_COST
+	return cell._energy > MOVE_COST
 }
 
 func (cell *Cell) isReadyToGrowLegs() bool {
-	return cell.legs == false && cell.energy > cell.growLegsAt
+	return cell.legs == false && cell._energy > cell.growLegsAt
 }
 
 var GUESS_AT_PERCENT_CELLS_ACTING = 0.1
@@ -731,7 +743,7 @@ func cellActionDecider(wg *sync.WaitGroup) {
 			} else {
 				//no action at all. Hopefully don't need to submit a null action
 			}
-			cell.nextMomentSelf.energy -= THINKING_COST
+			cell.nextMomentSelf.decreaseEnergy(THINKING_COST)
 			cell.nextMomentSelf.timeLeftToWait += cell.clockRate - 1 //TODO: Make sure not to do off-by-one here. Clock 1 should be every 1 turn
 		}
 		//cellActionExecuterWG.Add(1)
@@ -768,11 +780,11 @@ func cellActionExecuter(wg *sync.WaitGroup) {
 func growLegs(cell *Cell) {
 	if !cell.isReadyToGrowLegs() {
 		//unable to reproduce, but pays cost for trying. Grim.
-		cell.nextMomentSelf.energy -= GROWLEGS_COST
+		cell.nextMomentSelf.decreaseEnergy(GROWLEGS_COST)
 		return
 	} else {
 		cell.nextMomentSelf.legs = true
-		cell.nextMomentSelf.energy -= GROWLEGS_COST
+		cell.nextMomentSelf.decreaseEnergy(GROWLEGS_COST)
 	}
 }
 
@@ -791,7 +803,7 @@ func moveRandom(cell *Cell) bool {
 			nextMoment.cellsSpatialIndex[cell.x][cell.y] = nil
 			cell.x = xTry
 			cell.y = yTry
-			cell.energy -= MOVE_COST
+			cell.decreaseEnergy(MOVE_COST)
 
 			return true
 		}
@@ -850,9 +862,9 @@ func getSurroundingDirectionsInRandomOrder() []Direction {
 }
 
 func reproduce(cell *Cell) {
-	if cell.energy < REPRODUCE_COST || cell.energy < cell.energySpentOnReproducing {
+	if cell._energy < REPRODUCE_COST || cell._energy < cell.energySpentOnReproducing {
 		//unable to reproduce, but pays cost for trying. Grim.
-		cell.nextMomentSelf.energy -= cell.energySpentOnReproducing
+		cell.nextMomentSelf.decreaseEnergy(cell.energySpentOnReproducing)
 		return
 	}
 	//lockAllYs("reproduce")
@@ -872,7 +884,7 @@ func reproduce(cell *Cell) {
 			var rand0To99 = rand.Intn(100)
 			log(LOGTYPE_HIGHFREQUENCY, "      cell at %d, %d making a baby\n", cell.x, cell.y)
 			var babyCell = cellPool.Borrow()
-			babyCell.energy = cell.energySpentOnReproducing - REPRODUCE_COST
+			babyCell._energy = cell.energySpentOnReproducing - REPRODUCE_COST
 			babyCell.energyReproduceThreshold = cell.energyReproduceThreshold + float64(rand.Intn(7)-3)
 			babyCell.x = xTry
 			babyCell.y = yTry
@@ -944,7 +956,7 @@ func reproduce(cell *Cell) {
 			}
 			nextMoment.cells = append(nextMoment.cells, babyCell)
 			nextMoment.cellsSpatialIndex[xTry][yTry] = babyCell
-			cell.nextMomentSelf.energy -= cell.energySpentOnReproducing
+			cell.nextMomentSelf.decreaseEnergy(cell.energySpentOnReproducing)
 			return
 		}
 	}
@@ -980,14 +992,14 @@ func hasSignificantGeneticDivergence(cell *Cell) bool {
 }
 
 func growCanopy(cell *Cell) {
-	if cell.energy < GROWCANOPY_COST {
+	if cell._energy < GROWCANOPY_COST {
 		//unable to reproduce, but pays cost for trying. Grim.
-		cell.nextMomentSelf.energy -= GROWCANOPY_COST
+		cell.nextMomentSelf.decreaseEnergy(GROWCANOPY_COST)
 		return
 	} else {
-		cell.nextMomentSelf.growCanopyAt = cell.energy
+		cell.nextMomentSelf.growCanopyAt = cell._energy
 		cell.nextMomentSelf.canopy = true
-		cell.nextMomentSelf.energy -= GROWCANOPY_COST
+		cell.nextMomentSelf.decreaseEnergy(GROWCANOPY_COST)
 	}
 }
 
@@ -1011,7 +1023,7 @@ func reapAllDeadCells() {
 	var cellsToDelete = []*Cell{}
 	for ci := range nextMoment.cells {
 		var cell = nextMoment.cells[ci]
-		if cell.energy <= 0.0 {
+		if cell._energy <= 0.0 {
 			cellsToDelete = append(cellsToDelete, cell)
 		}
 	}
@@ -1023,7 +1035,7 @@ func reapAllDeadCells() {
 }
 
 func lockAllYs(who string) {
-	//lockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
+	//	lockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
 }
 
 func lockYXRangeInclusive(startY int, endY int, startX int, endX int, who string) {
@@ -1054,7 +1066,7 @@ func unlockYXRangeInclusive(startY int, endY int, startX int, endX int, who stri
 }
 
 func unlockAllYXs(who string) {
-	//unlockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
+	unlockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
 }
 
 var speciesIDCounter = 0
@@ -1064,7 +1076,7 @@ func spontaneouslyGenerateCell() {
 	//TODO: Probably need to lock some stuff here
 	//TODO: Cell pool should probaby zero out cell values before handing it off
 	var newCell = cellPool.Borrow()
-	newCell.energy = START_CELL_ENERGY
+	newCell._energy = START_CELL_ENERGY
 	var foundSpotYet = false
 	var tries = 0
 	var giveUp = false
@@ -1083,7 +1095,7 @@ func spontaneouslyGenerateCell() {
 			newCell.speciesID = speciesIDCounter
 			speciesIDCounter += 1
 			newCell.speciesColor = getNextColor()
-			newCell.energy = float64(rand.Intn(70))
+			newCell._energy = float64(rand.Intn(70))
 			newCell.timeLeftToWait = 0
 
 			newCell.clockRate = rand.Intn(50) + 1
@@ -1225,7 +1237,7 @@ func shineOnAllCells() {
 					for _, cellToReceiveEnergy := range surroundingCellsWithCanopyAndMe {
 						//TODO: Is there something fishy here?
 						if cellToReceiveEnergy.nextMomentSelf != nil {
-							cellToReceiveEnergy.nextMomentSelf.energy += energyToEachCell
+							cellToReceiveEnergy.increaseEnergy(energyToEachCell)
 						}
 					}
 				} else {
