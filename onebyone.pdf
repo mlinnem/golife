@@ -1,0 +1,15 @@
+(pprof) 40.10s of 45.70s total (87.75%)
+Dropped 111 nodes (cum <= 0.23s)
+Showing top 10 nodes out of 95 (cum >= 1.08s)
+      flat  flat%   sum%        cum   cum%
+    22.09s 48.34% 48.34%     22.09s 48.34%  runtime.mach_semaphore_signal
+     2.93s  6.41% 54.75%      2.98s  6.52%  runtime.scanobject
+     2.76s  6.04% 60.79%      2.76s  6.04%  runtime.mach_semaphore_wait
+     2.34s  5.12% 65.91%      2.34s  5.12%  runtime.usleep
+     2.26s  4.95% 70.85%     12.30s 26.91%  main.shineOnAllCells
+     2.02s  4.42% 75.27%      5.29s 11.58%  runtime.growslice
+     1.97s  4.31% 79.58%      5.33s 11.66%  runtime.mallocgc
+     1.53s  3.35% 82.93%      1.53s  3.35%  runtime.heapBitsSetType
+     1.12s  2.45% 85.38%      3.45s  7.55%  main.getSurroundingCells
+     1.08s  2.36% 87.75%      1.08s  2.36%  runtime.memmove
+(pprof) 
