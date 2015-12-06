@@ -5,7 +5,6 @@ import (
 	"math"
 	"math/rand"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 
@@ -14,7 +13,7 @@ import (
 
 //FOUNDATIONAL WORLD VARIABLES
 
-const initialCellCount = 2000
+const initialCellCount = 500
 
 const CELL_LIFESPAN = 300
 
@@ -26,9 +25,9 @@ const MOVE_COST = 5
 const THINKING_COST = 3.0
 const REPRODUCE_COST = 30
 const GROWCANOPY_COST = 60
-const GROWLEGS_COST = 20
+const GROWLEGS_COST = 30
 
-var SHINE_ENERGY_AMOUNT = 4.0
+var SHINE_ENERGY_AMOUNT = 2.0
 
 const ACTUAL_WAIT_MULTIPLIER = 3
 
@@ -37,16 +36,17 @@ const printGridEveryNTurns = 20
 const SPECIES_DIVERGENCE_THRESHOLD = 65
 
 var START_CELL_ENERGY = 50.0
+
 var MAX_TRIES = 100
 
-var logTypesEnabled = []int{LOGTYPE_PRINTGRID_BIGGRID, LOGTYPE_PRINTGRID_SUMMARY, LOGTYPE_FINALSTATS}
+var logTypesEnabled = []int{LOGTYPE_PRINTGRID_GRID, LOGTYPE_SPECIESREPORT, LOGTYPE_PRINTGRID_SUMMARY, LOGTYPE_FINALSTATS}
 
-const GRID_WIDTH = 1000
-const GRID_HEIGHT = 1000
+const GRID_WIDTH = 31
+const GRID_HEIGHT = 150
 
 const BIGGRID_INCREMENT = 10
 
-const MAX_MOMENTS = 100
+const MAX_MOMENTS = 9000
 
 const maxCellCount = 900000
 
@@ -80,6 +80,12 @@ type Pool struct {
 	pool chan *Cell
 }
 
+const SURROUNDINGS_SIZE = 9
+
+type SurroundingsPool struct {
+	pool chan *[SURROUNDINGS_SIZE]*Cell
+}
+
 type CellBundle struct {
 	cells []*Cell
 }
@@ -95,6 +101,12 @@ func newPool(max int) *Pool {
 	}
 }
 
+func newSurroundingsPool(max int) *SurroundingsPool {
+	return &SurroundingsPool{
+		pool: make(chan *[SURROUNDINGS_SIZE]*Cell, max),
+	}
+}
+
 // Borrow a Cell from the pool.
 func (p *Pool) Borrow() *Cell {
 	var c *Cell
@@ -106,13 +118,36 @@ func (p *Pool) Borrow() *Cell {
 	return c
 }
 
+func (p *SurroundingsPool) Borrow() *[SURROUNDINGS_SIZE]*Cell {
+	var c *[SURROUNDINGS_SIZE]*Cell
+	select {
+	case c = <-p.pool:
+	default:
+		c = newSurroundings()
+	}
+	return c
+}
+
 // Return returns a Cell to the pool.
+//TODO: Should all these be pointers to slices rather than slices? *[]*Cell instead
+func (p *SurroundingsPool) Return(c *[SURROUNDINGS_SIZE]*Cell) {
+	select {
+	case p.pool <- c:
+	default:
+
+	}
+}
+
 func (p *Pool) Return(c *Cell) {
 	select {
 	case p.pool <- c:
 	default:
 
 	}
+}
+
+func newSurroundings() *[SURROUNDINGS_SIZE]*Cell {
+	return &[SURROUNDINGS_SIZE]*Cell{}
 }
 
 //TODO: Make it easy to add a field and have it appear in all the right places Re: copying and whatnot
@@ -281,6 +316,7 @@ func (moment *Moment) CleanRow(yi int) {
 }
 
 var cellPool *Pool
+var surroundingsPool *SurroundingsPool
 
 var oldMoment *Moment
 var momentBeingCleaned *Moment
@@ -317,6 +353,7 @@ func main() {
 	nextMomentYXLocks = [GRID_HEIGHT][GRID_WIDTH]sync.Mutex{}
 	bulkGrabLock = &sync.Mutex{}
 	cellPool = newPool(maxCellCount)
+	surroundingsPool = newSurroundingsPool(maxCellCount)
 
 	//set up nonCellActionExecutors
 	var nonCellActionExecuterWG sync.WaitGroup
@@ -347,7 +384,7 @@ func main() {
 	var waitForCleaning sync.WaitGroup
 
 	var t1all = time.Now()
-	for momentNum := 0; momentNum < MAX_MOMENTS; momentNum++ {
+	for momentNum = 0; momentNum < MAX_MOMENTS; momentNum++ {
 		var t1a = time.Now()
 		//var t1 = time.Now()
 		log(LOGTYPE_MAINLOOPSINGLE_PRIMARY, "moment %d...\n", momentNum)
@@ -586,11 +623,10 @@ func printSpeciesReport(moment *Moment, topXSpecies int) {
 		var speciesID = pair.Key
 		var count = speciesIDToCount[speciesID]
 		//TODO: This bugged
-		var speciesIDInt, _ = strconv.Atoi(speciesID)
 		var specimen *Cell = speciesIDToSpecimen[speciesID]
 
-		log(LOGTYPE_SPECIESREPORT, "Species %d\t "+specimen.speciesColor.startSequence+"x"+specimen.speciesColor.endSequence+"\t"+"\t"+"Count: %d\t reprod threshold: %6.1f\t reprod energy: %6.1f\t grow canopy threshold: %6.1f\t wait percent: %d\t clock rate %d\t grow legs threshold: %6.1f\n",
-			speciesIDInt, count, specimen._originalEnergyReproduceThreshold, specimen._originalEnergySpentOnReproducing, specimen._originalgrowCanopyAt, specimen._originalPercentChanceWait, specimen._originalClockRate, specimen._originalGrowLegsAt)
+		log(LOGTYPE_SPECIESREPORT, "Species %s\t "+specimen.speciesColor.startSequence+"x"+specimen.speciesColor.endSequence+"\t"+"\t"+"Count: %d\t reprod threshold: %6.1f\t reprod energy: %6.1f\t gcanopy thresh: %6.1f\t wait percent: %d\t clock rate %d\t gleg thresh: %6.1f\n",
+			speciesID, count, specimen._originalEnergyReproduceThreshold, specimen._originalEnergySpentOnReproducing, specimen._originalgrowCanopyAt, specimen._originalPercentChanceWait, specimen._originalClockRate, specimen._originalGrowLegsAt)
 	}
 	log(LOGTYPE_SPECIESREPORT, "\n")
 }
@@ -646,7 +682,7 @@ func nonCellActionExecuter(wg *sync.WaitGroup) {
 			shineOnAllCells()
 		case noncellaction_grimReaper:
 			//TODO: Removing reapar call as a test, doing it implicitly now when next turn starts
-			reapAllDeadCells()
+			//reapAllDeadCells()
 		case noncellaction_cellMaintenance:
 			//TODO
 			maintainAllCells()
@@ -1230,7 +1266,7 @@ func Round(val float64, roundOn float64, places int) (newVal float64) {
 	return
 }
 
-const SHINE_FREQUENCY = 10
+const SHINE_FREQUENCY = 1
 
 func shineOnAllCells() {
 	if momentNum%SHINE_FREQUENCY == 0 {
@@ -1238,40 +1274,49 @@ func shineOnAllCells() {
 		//TODO: This could stand to be refactored a bit
 		//TODO: Changed for nextMoment to current moment, but might be wrong...
 
+		var isDayTime = momentNum%100 <= 50
+		var wg = &sync.WaitGroup{}
 		for yi := range currentMoment.cellsSpatialIndex {
+			wg.Add(1)
+			go shineThisRow(yi, isDayTime, wg)
 
-			for xi := range currentMoment.cellsSpatialIndex[yi] {
-				var cell = currentMoment.cellsSpatialIndex[yi][xi]
-				if cell == nil {
-					continue
-				}
-				//	lockYXRangeInclusive(yi-1, yi+1, xi-1, xi+1, "shiner")
-				//fmt.Printf("Proximity to middle: %d\n", int(YProximityToMiddleAsPercent(yi)*100))
-				if (momentNum % 100) <= 50 { //int(YProximityToMiddleAsPercent(yi)*100)
-
-					//TODO: should this be next moment?
-					//var shineAmountForThisSquare = SHINE_ENERGY_AMOUNT //* (float64(xi) / float64(GRID_HEIGHT)) //  GRADIENT
-					var shineAmountForThisSquare = SHINE_ENERGY_AMOUNT * SHINE_FREQUENCY // * float64(float64(yi)/float64(GRID_HEIGHT))
-					//fmt.Printf("shine amount at %d: %f", yi, shineAmountForThisSquare)
-					//var shineAmountForThisSquare = 0.0
-					//if xi%10 == 0 || (xi+1)%10 == 0 || (yi%10 == 0) || ((yi+1)%10) == 0 {
-					//	shineAmountForThisSquare = 0.0
-					//} else {
-					//	shineAmountForThisSquare = SHINE_ENERGY_AMOUNT
-					//}
-					newShineMethod(cell, shineAmountForThisSquare)
-					//oldShineMethod(cell, shineAmountForThisSquare)
-				} else {
-					//No sun at night
-				}
-				log(LOGTYPE_HIGHFREQUENCY, "Shiner touching on %d, %d \n", xi, yi)
-				//unlockYXRangeInclusive(yi-1, yi+1, xi-1, xi+1, "shiner")
-				//TODO: May have placed lock/unlocks here incorrectly
-			}
-
+			//log(LOGTYPE_HIGHFREQUENCY, "Shiner touching on %d, %d \n", xi, yi)
+			//unlockYXRangeInclusive(yi-1, yi+1, xi-1, xi+1, "shiner")
+			//TODO: May have placed lock/unlocks here incorrectly
 		}
 		log(LOGTYPE_MAINLOOPSINGLE, "Ending shine\n")
+		wg.Wait()
 	}
+
+}
+
+func shineThisRow(yi int, isDayTime bool, wg *sync.WaitGroup) {
+	for xi := range currentMoment.cellsSpatialIndex[yi] {
+		//var cell = currentMoment.cellsSpatialIndex[yi][xi]
+		//if cell == nil {
+		//	continue
+		//}
+		//	lockYXRangeInclusive(yi-1, yi+1, xi-1, xi+1, "shiner")
+		//fmt.Printf("Proximity to middle: %d\n", int(YProximityToMiddleAsPercent(yi)*100))
+		if isDayTime { //int(YProximityToMiddleAsPercent(yi)*100)
+
+			//TODO: should this be next moment?
+			//var shineAmountForThisSquare = SHINE_ENERGY_AMOUNT //* (float64(xi) / float64(GRID_HEIGHT)) //  GRADIENT
+			var shineAmountForThisSquare = SHINE_ENERGY_AMOUNT * SHINE_FREQUENCY // * float64(float64(yi)/float64(GRID_HEIGHT))
+			//fmt.Printf("shine amount at %d: %f", yi, shineAmountForThisSquare)
+			//var shineAmountForThisSquare = 0.0
+			//if xi%10 == 0 || (xi+1)%10 == 0 || (yi%10 == 0) || ((yi+1)%10) == 0 {
+			//	shineAmountForThisSquare = 0.0
+			//} else {
+			//	shineAmountForThisSquare = SHINE_ENERGY_AMOUNT
+			//}
+			newShineMethod(xi, yi, shineAmountForThisSquare)
+			//oldShineMethod(cell, shineAmountForThisSquare)
+		} else {
+			//No sun at night
+		}
+	}
+	wg.Done()
 }
 
 func oldShineMethod(cell *Cell, shineAmountForThisSquare float64) {
@@ -1289,27 +1334,37 @@ func oldShineMethod(cell *Cell, shineAmountForThisSquare float64) {
 	}
 }
 
-func newShineMethod(cell *Cell, shineAmountForThisSquare float64) {
-	var x = cell.x
-	var y = cell.y
+func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 	//TODO: Next up, recycle these slices?
-	var surroundingCellsWithCanopiesAndMe = make([]*Cell, 0, 9)
-	surroundingCellsWithCanopiesAndMe = append(surroundingCellsWithCanopiesAndMe, cell)
+	//TODO: Just making the array is faster than using pool. Surprising
+	var surroundingCellsWithCanopiesAndMe = &[SURROUNDINGS_SIZE]*Cell{} //surroundingsPool.Borrow()
+	var numSurrounders = 0
+	var cell = currentMoment.cellsSpatialIndex[y][x]
+	if cell != nil {
+		surroundingCellsWithCanopiesAndMe[0] = cell
+		numSurrounders += 1
+	}
+
 	for relativeX := -1; relativeX < 2; relativeX++ {
 		for relativeY := -1; relativeY < 2; relativeY++ {
 			var xTry = x + relativeX
 			var yTry = y + relativeY
-
+			if relativeX == 0 && relativeY == 0 {
+				continue
+			}
 			if !isOutOfBounds(xTry, yTry, currentMoment) && isOccupied(xTry, yTry, currentMoment) && currentMoment.cellsSpatialIndex[xTry][yTry].canopy == true {
-				var cell = currentMoment.cellsSpatialIndex[xTry][yTry]
-				surroundingCellsWithCanopiesAndMe = append(surroundingCellsWithCanopiesAndMe, cell)
+				var surroundingCell = currentMoment.cellsSpatialIndex[xTry][yTry]
+				surroundingCellsWithCanopiesAndMe[numSurrounders] = surroundingCell
+				numSurrounders += 1
 			}
 		}
 	}
-	var energyToEachCell = shineAmountForThisSquare / float64(len(surroundingCellsWithCanopiesAndMe))
-	for _, cellToReceiveEnergy := range surroundingCellsWithCanopiesAndMe {
-		cellToReceiveEnergy.increaseEnergy(energyToEachCell)
+	var energyToEachCell = shineAmountForThisSquare / float64(numSurrounders)
+	for i := 0; i < numSurrounders; i++ {
+		surroundingCellsWithCanopiesAndMe[i].increaseEnergy(energyToEachCell)
 	}
+
+	//surroundingsPool.Return(surroundingCellsWithCanopiesAndMe)
 }
 
 func YProximityToMiddleAsPercent(y int) float64 {
