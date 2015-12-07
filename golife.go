@@ -17,17 +17,17 @@ const initialCellCount = 500
 
 const CELL_LIFESPAN = 300
 
-const BASE_CELL_UPKEEP = 1.0
-const CANOPY_UPKEEP = .2
+const BASE_CELL_UPKEEP = 500.0
+const CANOPY_UPKEEP = 500.0
 const LEGS_UPKEEP = .2
 
 const MOVE_COST = 5
 const THINKING_COST = 3.0
 const REPRODUCE_COST = 30
-const GROWCANOPY_COST = 60
-const GROWLEGS_COST = 30
+const GROWCANOPY_COST = 500.0
+const GROWLEGS_COST = 37
 
-var SHINE_ENERGY_AMOUNT = 2.0
+var SHINE_ENERGY_AMOUNT = 4.0
 
 const ACTUAL_WAIT_MULTIPLIER = 3
 
@@ -156,6 +156,7 @@ type Cell struct {
 	dead            bool
 	x               int
 	y               int
+	id              int
 	_timeLeftToWait int
 	clockRate       int
 	canopy          bool
@@ -184,13 +185,20 @@ type Cell struct {
 
 func (cell *Cell) decreaseEnergy(amt float64) {
 	if !cell.isDead() {
-		cell.nextMomentSelf._energy -= amt
+		log(LOGTYPE_CELLEFFECT, "the future cell %d currently has %f energy\n", cell.nextMomentSelf.id, cell.nextMomentSelf._energy)
+		log(LOGTYPE_CELLEFFECT, "decreased cell %d by %f\n", cell.nextMomentSelf.id, amt)
+		cell.nextMomentSelf._energy = cell.nextMomentSelf._energy - amt
+		log(LOGTYPE_CELLEFFECT, "cell %d will now have %f energy\n", cell.nextMomentSelf.id, cell.nextMomentSelf._energy)
 	}
 }
 
 func (cell *Cell) increaseEnergy(amt float64) {
 	if !cell.isDead() {
-		cell.nextMomentSelf._energy += amt
+		log(LOGTYPE_CELLEFFECT, "the future cell %d currently has %f energy\n", cell.nextMomentSelf.id, cell.nextMomentSelf._energy)
+		log(LOGTYPE_CELLEFFECT, "increased cell %d by %f\n", cell.nextMomentSelf.id, amt)
+		cell.nextMomentSelf._energy = cell.nextMomentSelf._energy + amt
+
+		log(LOGTYPE_CELLEFFECT, "cell %d will now have %f energy\n", cell.nextMomentSelf.id, cell.nextMomentSelf._energy)
 	}
 }
 
@@ -200,6 +208,7 @@ func (oldCell *Cell) Copy() *Cell {
 	newCell._energy = oldCell._energy
 	newCell.age = oldCell.age
 	newCell.x = oldCell.x
+	newCell.id = oldCell.id
 	newCell.y = oldCell.y
 	newCell.speciesID = oldCell.speciesID
 	newCell.percentChanceWait = oldCell.percentChanceWait
@@ -225,6 +234,7 @@ func (oldCell *Cell) Copy() *Cell {
 
 func (oldCell *Cell) ContinueOn() *Cell {
 	var continuedCell = oldCell.Copy()
+	log(LOGTYPE_CELLEFFECT, "cell %d now has a future self established during moment %d\n", oldCell.id, momentNum)
 	oldCell.nextMomentSelf = continuedCell
 	return continuedCell
 }
@@ -237,8 +247,15 @@ func (cell *Cell) Maintain() {
 	if cell.canopy {
 		totalUpkeep += CANOPY_UPKEEP
 	}
-	cell.decreaseEnergy((totalUpkeep * float64(cell.age)) / CELL_LIFESPAN)
-	cell.age += 1
+	log(LOGTYPE_CELLEFFECT, "cell %d is about to be maintained\n", cell.id)
+	cell.decreaseEnergy(totalUpkeep * float64(cell.age) / CELL_LIFESPAN)
+	//cell.decreaseEnergy(40)
+	//	cell._energy -= totalUpkeep * float64(cell.age) / CELL_LIFESPAN
+	cell.increaseAge(1)
+}
+
+func (cell *Cell) increaseAge(amt int) {
+	cell.age = cell.age + amt
 }
 
 type CellAction struct {
@@ -338,6 +355,11 @@ var pendingNonCellActions = make(chan *NonCellAction, maxCellCount)
 //var pendingCellActions = make(chan *CellActionBundle, maxCellCount)
 var pendingCellActions = make(chan *CellAction, maxCellCount)
 
+var cellActionDeciderWG sync.WaitGroup
+var nonCellActionExecuterWG sync.WaitGroup
+
+var waitForCleaning sync.WaitGroup
+
 func createThisManyCells(startHere int, endBeforeHere int, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for i := startHere; i < endBeforeHere; i++ {
@@ -347,74 +369,86 @@ func createThisManyCells(startHere int, endBeforeHere int, wg *sync.WaitGroup) {
 
 var momentNum = 0
 
-func main() {
-	//	rand.Seed(int64(time.Now().Second()))
-	defer profile.Start(profile.CPUProfile).Stop()
-	nextMomentYXLocks = [GRID_HEIGHT][GRID_WIDTH]sync.Mutex{}
-	bulkGrabLock = &sync.Mutex{}
-	cellPool = newPool(maxCellCount)
-	surroundingsPool = newSurroundingsPool(maxCellCount)
-
+func startPersistentThreads() {
 	//set up nonCellActionExecutors
-	var nonCellActionExecuterWG sync.WaitGroup
+
 	for i := 0; i < nonCellActionExecuterRoutineCount; i++ {
 		go nonCellActionExecuter(&nonCellActionExecuterWG)
 	}
-
 	//set up cellActionDeciders to pull from readyCells channel (freely)
-	var cellActionDeciderWG sync.WaitGroup
 	for i := 0; i < cellActionDeciderRoutineCount; i++ {
 		go cellActionDecider(&cellActionDeciderWG)
 	}
-
 	for i := 0; i < cellActionExecuterRoutineCount; i++ {
 		go cellActionExecuter(&cellActionExecuterWG)
 	}
-	//set up cellActionExecuters to pull from readyCellActions channel (freely)
+}
 
-	//set up nonCellActionExecutors to pull from readyNonCellActions channel (freely)
+func transferLiveCellsToNextMoment() {
+	nextMoment.cells = make([]*Cell, 0, len(currentMoment.cells))
+	nextMoment.cellsSpatialIndex = [GRID_WIDTH][GRID_HEIGHT]*Cell{}
+	for ci := range currentMoment.cells {
+		var currentMomentCell = currentMoment.cells[ci]
+		//This takes place of reaper function
+		log(LOGTYPE_HIGHFREQUENCY, "a cell %d, has %6.2f energy\n", currentMomentCell._secretID, currentMomentCell._energy)
+		if currentMomentCell._energy > 0 {
+			var nextMomentCell = currentMomentCell.ContinueOn()
+			nextMoment.cells = append(nextMoment.cells, nextMomentCell)
+			nextMoment.cellsSpatialIndex[nextMomentCell.x][nextMomentCell.y] = nextMomentCell
+		}
+	}
+	log(LOGTYPE_MAINLOOPSINGLE, "Transferred cells over to next moment by default, same loc\n")
+}
 
-	//request initial cells to be created
+func feedCurrentMomentCellsToActionDecider() {
+	for ci := 0; ci < len(currentMoment.cells); ci++ {
+		var cell = currentMoment.cells[ci]
+		cellActionDeciderWG.Add(1)
+		cellsReadyForAction <- cell
+	}
+}
 
+func feedQueuedNonCellActionsToExecuter() {
+	for ai := 0; ai < len(queuedNonCellActions); ai++ {
+		var nonCellAction = queuedNonCellActions[ai]
+		pendingNonCellActions <- nonCellAction
+	}
+	//empty queue now that they've been sent. Probably better way to do this
+	queuedNonCellActions = []*NonCellAction{}
+}
+
+func main() {
+
+	//FIRST-TIME INIT
+	//	rand.Seed(int64(time.Now().Second()))
+	defer profile.Start(profile.CPUProfile).Stop()
+
+	cellPool = newPool(maxCellCount)
+	surroundingsPool = newSurroundingsPool(maxCellCount)
 	currentMoment = &Moment{}
 	nextMoment = &Moment{}
 	momentBeingCleaned = &Moment{}
-	nextMomentLock = &sync.Mutex{}
 
-	var waitForCleaning sync.WaitGroup
+	nextMomentYXLocks = [GRID_HEIGHT][GRID_WIDTH]sync.Mutex{}
+	bulkGrabLock = &sync.Mutex{}
+
+	startPersistentThreads()
 
 	var t1all = time.Now()
 	for momentNum = 0; momentNum < MAX_MOMENTS; momentNum++ {
+		if momentNum%printGridEveryNTurns == 0 {
+			printGrid(currentMoment)
+			printSpeciesReport(currentMoment, NUM_TOP_SPECIES_TO_PRINT)
+		}
 		var t1a = time.Now()
 		//var t1 = time.Now()
 		log(LOGTYPE_MAINLOOPSINGLE_PRIMARY, "moment %d...\n", momentNum)
 		//Assume all cells will be in same position in next moment
-		//TODO: This should be a function somewhere?
-		//	nextMomentLock.Lock()/
 		//TODO: Should this be happening elsewhere?
-		nextMoment.cells = make([]*Cell, 0, len(currentMoment.cells))
-		for ci := range currentMoment.cells {
-			var currentMomentCell = currentMoment.cells[ci]
-			//This takes place of reaper function
-			log(LOGTYPE_HIGHFREQUENCY, "a cell %d, has %6.2f energy\n", currentMomentCell._secretID, currentMomentCell._energy)
-			if currentMomentCell._energy >= 0 {
-				var nextMomentCell = currentMomentCell.ContinueOn()
-				nextMoment.cells = append(nextMoment.cells, nextMomentCell)
-				nextMoment.cellsSpatialIndex[nextMomentCell.x][nextMomentCell.y] = nextMomentCell
-			}
-		}
-		log(LOGTYPE_MAINLOOPSINGLE, "Transferred cells over to next moment by default, same loc\n")
+		transferLiveCellsToNextMoment()
 
-		//TODO Make these pointers later?
-		//	cellActionDeciderWG.Add(1)
-		//	cellsReadyForAction <- &CellBundle{currentMoment.cells}
-		//	feed all cells in currentMoment to cellsReadyForAction channel
-		for ci := 0; ci < len(currentMoment.cells); ci++ {
-			var cell = currentMoment.cells[ci]
-			cellActionDeciderWG.Add(1)
-			cellsReadyForAction <- cell
+		feedCurrentMomentCellsToActionDecider()
 
-		}
 		//NOT going to wait for all actions to be decided before executing. Decisions can trigger actions right away (prepare for locking needs...)
 		//wait for all actionPickers and actionExecuters to be done  (nextMoment should be fully populated now)
 		cellActionDeciderWG.Wait()
@@ -426,25 +460,23 @@ func main() {
 			generateInitialNonCellActions(&nonCellActionExecuterWG)
 			//	close(queuedNonCellActions)
 		} else {
+			log(LOGTYPE_MAINLOOPSINGLE, "Generating cell maintenance and other stuff\n")
+			generateSunshineAction(&nonCellActionExecuterWG)
 			generateCellMaintenanceAction(&nonCellActionExecuterWG)
 			generateGrimReaperAction(&nonCellActionExecuterWG)
-			generateSunshineAction(&nonCellActionExecuterWG)
 		}
 		//feed waitingNonCellActions to readyNonCellActions
 		log(LOGTYPE_MAINLOOPSINGLE, "Dumping non-cell actions into working queue (if any)\n")
 
-		for ai := 0; ai < len(queuedNonCellActions); ai++ {
-			var nonCellAction = queuedNonCellActions[ai]
-			pendingNonCellActions <- nonCellAction
-		}
-		//empty queue now that they've been sent. Probably better way to do this
-		queuedNonCellActions = []*NonCellAction{}
+		feedQueuedNonCellActionsToExecuter()
+
 		log(LOGTYPE_MAINLOOPSINGLE, "Transferred to non-cell executers...\n")
 		//wait for all non-cell actions to be done
 		nonCellActionExecuterWG.Wait()
-		log(LOGTYPE_MAINLOOPSINGLE, "Non-cell Executers did their thing\n")
 
+		log(LOGTYPE_MAINLOOPSINGLE, "Non-cell Executers did their thing\n")
 		//nextMoment becomes current moment.
+		log(LOGTYPE_MAINLOOPSINGLE, "Right before we switch to next moment")
 		oldMoment = currentMoment
 		currentMoment = nextMoment
 		var tClean1 = time.Now()
@@ -455,6 +487,7 @@ func main() {
 		var t2a = time.Now()
 		nextMoment = momentBeingCleaned
 		momentBeingCleaned = oldMoment
+		log(LOGTYPE_MAINLOOPSINGLE, "Right after the switcheroo")
 		log(LOGTYPE_MAINLOOPSINGLE, "About to wait for cleaning\n")
 		waitForCleaning.Add(1)
 		momentBeingCleaned.ReturnCellsToPool()
@@ -462,11 +495,6 @@ func main() {
 
 		var dura = t2a.Sub(t1a).Seconds()
 		log(LOGTYPE_MAINLOOPSINGLE_PRIMARY, "Time of entire turn took %f\n", dura)
-
-		if momentNum%printGridEveryNTurns == 0 {
-			printGrid(currentMoment)
-			printSpeciesReport(currentMoment, NUM_TOP_SPECIES_TO_PRINT)
-		}
 		if len(currentMoment.cells) == 0 {
 			log(LOGTYPE_FAILURES, "Early termination due to all cells dying\n")
 			break
@@ -549,7 +577,7 @@ func printGrid(moment *Moment) {
 			legsTotal += 1
 			moveChanceTotal += cell.moveChance
 		}
-		log(LOGTYPE_PRINTGRIDCELLS, "(Cell) %d: %d,%d with %f, age %d, reprod at %f, grew canopy at %f, reproduces with %f\n", ci, moment.cells[ci].x, moment.cells[ci].y, moment.cells[ci]._energy, moment.cells[ci].age, moment.cells[ci].energyReproduceThreshold, moment.cells[ci].growCanopyAt, cell.energySpentOnReproducing)
+		log(LOGTYPE_PRINTGRIDCELLS, "(Cell) %d: %d,%d with %f, age %d, reprod at %f, grew canopy at %f, reproduces with %f\n", cell.id, moment.cells[ci].x, moment.cells[ci].y, moment.cells[ci]._energy, moment.cells[ci].age, moment.cells[ci].energyReproduceThreshold, moment.cells[ci].growCanopyAt, cell.energySpentOnReproducing)
 	}
 
 	log(LOGTYPE_PRINTGRID_SUMMARY, "-----SUMMARY STATE-----\n")
@@ -649,8 +677,8 @@ const (
 func generateInitialNonCellActions(wg *sync.WaitGroup) {
 	for i := 0; i < initialCellCount; i++ {
 		//TODO: is this efficient? Maybe get rid of struct and use raw consts
-		queuedNonCellActions = append(queuedNonCellActions, &NonCellAction{noncellaction_spontaneouslyPlaceCell})
 		wg.Add(1)
+		queuedNonCellActions = append(queuedNonCellActions, &NonCellAction{noncellaction_spontaneouslyPlaceCell})
 	}
 }
 
@@ -850,7 +878,8 @@ func (cell *Cell) growLegs() {
 		return
 	} else {
 		var nextMomentSelf = cell.nextMomentSelf
-		nextMomentSelf.legs = true
+		//TODO: Disabled leg growing. Should re-enable when it's no longer under suspicion
+		nextMomentSelf.legs = false
 		nextMomentSelf.decreaseEnergy(GROWLEGS_COST)
 	}
 }
@@ -898,6 +927,7 @@ const (
 	LOGTYPE_FAILURES               = iota
 	LOGTYPE_SPECIALEVENT           = iota
 	LOGTYPE_SPECIESREPORT          = iota
+	LOGTYPE_CELLEFFECT             = iota
 )
 
 func log(logType int, message string, params ...interface{}) {
@@ -936,7 +966,7 @@ func reproduce(cell *Cell) {
 		cell.decreaseEnergy(cell.energySpentOnReproducing)
 		return
 	}
-	//lockAllYs("reproduce")
+	lockAllYXs("reproduce")
 	//try all spots surrounding the cell
 	//TODO: Why are we not locking here???
 	//lockYRangeInclusive(cell.y-1, cell.y+1, "reproduce")
@@ -951,9 +981,13 @@ func reproduce(cell *Cell) {
 		if !isOccupied(xTry, yTry, nextMoment) {
 
 			var rand0To99 = rand.Intn(100)
-			log(LOGTYPE_HIGHFREQUENCY, "      cell at %d, %d making a baby\n", cell.x, cell.y)
+			log(LOGTYPE_CELLEFFECT, "cell %d at %d, %d making a baby\n", cell.id, cell.x, cell.y)
 			var babyCell = cellPool.Borrow()
 			babyCell._energy = cell.energySpentOnReproducing - REPRODUCE_COST
+			//TODO: This should be a function, probably needs locking if parallelized
+			babyCell.id = IDCounter
+			IDCounter += 1
+			log(LOGTYPE_CELLEFFECT, "baby cell %d born with %f energy\n", babyCell.id, babyCell._energy)
 			babyCell.energyReproduceThreshold = cell.energyReproduceThreshold + float64(rand.Intn(7)-3)
 			babyCell.x = xTry
 			babyCell.y = yTry
@@ -971,20 +1005,22 @@ func reproduce(cell *Cell) {
 			//TODO: Better way to do this
 
 			//TODO: This whole way of doing legs is weird. Should be on or off switch methinks
-			var rand0To99_2 = rand.Intn(100)
-			if rand0To99_2 == 0 {
-				//legless gets legs
-				babyCell.growLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST
-				babyCell.moveChance = float64(rand.Intn(40))
-			} else if rand0To99_2 == 1 {
-				//legged goes legless
-				babyCell.growLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
-				babyCell.moveChance = 0.0
-			} else {
-				//mutate like normal
-				babyCell.growLegsAt = math.Max(GROWLEGS_COST, float64(cell.growLegsAt+float64(rand.Intn(7)-3)))
-				babyCell.moveChance = math.Max(0.0, float64(cell.moveChance+float64(rand.Intn(7)-3)))
-			}
+			//var rand0To99_2 = rand.Intn(100)
+			//if rand0To99_2 == 0 {
+			//legless gets legs
+			//	babyCell.growLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST
+			//	babyCell.moveChance = float64(rand.Intn(40))
+			//} else if rand0To99_2 == 1 {
+			//legged goes legless
+			//	babyCell.growLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
+			//	babyCell.moveChance = 0.0
+			//} else {
+			//mutate like normal
+			//	babyCell.growLegsAt = math.Max(GROWLEGS_COST, float64(cell.growLegsAt+float64(rand.Intn(7)-3)))
+			//	babyCell.moveChance = math.Max(0.0, float64(cell.moveChance+float64(rand.Intn(7)-3)))
+			//}
+			//TODO: Just trying to disable this
+			babyCell.growLegsAt = 9999999
 
 			babyCell.percentChanceWait = int(math.Max(0.0, float64(cell.percentChanceWait+rand.Intn(7)-3)))
 
@@ -1069,6 +1105,7 @@ func (cell *Cell) growCanopy() {
 		return
 	} else {
 		cell.nextMomentSelf.canopy = true
+		log(LOGTYPE_CELLEFFECT, "Cell %d grew canopy\n", cell.id)
 		cell.nextMomentSelf.decreaseEnergy(GROWCANOPY_COST)
 	}
 }
@@ -1076,12 +1113,10 @@ func (cell *Cell) growCanopy() {
 func maintainAllCells() {
 	log(LOGTYPE_MAINLOOPSINGLE, "Starting maintain\n")
 	//lockAllYs("maintain cells")
-	for ci := range nextMoment.cells {
-		var cell = nextMoment.cells[ci]
-		//TODO: This is likely covering up some kind of synchronization error where these are null sometimes
-		if cell != nil {
-			nextMoment.cells[ci].Maintain()
-		}
+	for _, cell := range currentMoment.cells {
+		//lockYXRangeInclusive(cell.x, cell.y, cell.x, cell.y, "maintainer")
+		cell.Maintain()
+		//	unlockYXRangeInclusive(cell.x, cell.y, cell.x, cell.y, "maintainer")
 	}
 	//unlockAllYXs("maintain cells")
 	log(LOGTYPE_MAINLOOPSINGLE, "Ending maintain\n")
@@ -1104,8 +1139,8 @@ func reapAllDeadCells() {
 	log(LOGTYPE_MAINLOOPSINGLE, "Ending reap\n")
 }
 
-func lockAllYs(who string) {
-	//	lockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
+func lockAllYXs(who string) {
+	//lockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
 }
 
 func lockYXRangeInclusive(startY int, endY int, startX int, endX int, who string) {
@@ -1140,6 +1175,7 @@ func unlockAllYXs(who string) {
 }
 
 var speciesIDCounter = 0
+var IDCounter = 0
 
 func spontaneouslyGenerateCell() {
 	//TODO: Shouldn't this be next moment?
@@ -1151,18 +1187,21 @@ func spontaneouslyGenerateCell() {
 	var tries = 0
 	var giveUp = false
 	//TODO: Add a timeout to this
-	for !foundSpotYet || giveUp {
+	for !foundSpotYet && !giveUp {
 
 		var xTry = rand.Intn(GRID_WIDTH)
 		var yTry = rand.Intn(GRID_HEIGHT)
 		nextMomentYXLocks[yTry][xTry].Lock()
-		if !isOccupied(xTry, yTry, currentMoment) {
+		if !isOccupied(xTry, yTry, nextMoment) {
+			foundSpotYet = true
 
 			//TODO: This aint gonna work for some reason
 			//	nextMomentLock.Lock()
 			newCell.x = xTry
 			newCell.y = yTry
 			newCell.speciesID = speciesIDCounter
+			newCell.id = IDCounter
+			IDCounter += 1
 			speciesIDCounter += 1
 			newCell.speciesColor = getNextColor()
 			newCell._energy = float64(rand.Intn(70))
@@ -1175,13 +1214,15 @@ func spontaneouslyGenerateCell() {
 			newCell.energyReproduceThreshold = newCell.energySpentOnReproducing + float64(rand.Intn(120))
 			newCell.canopy = false
 			newCell.growCanopyAt = float64(rand.Intn(120)) + GROWCANOPY_COST
-			if rand.Intn(100) < 50 {
-				newCell.growLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST
-				newCell.moveChance = float64(rand.Intn(40))
-			} else {
-				newCell.growLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
-				newCell.moveChance = 0.0
-			}
+			//if rand.Intn(100) < 50 {
+			//	newCell.growLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST
+			//	newCell.moveChance = float64(rand.Intn(40))
+			//} else {
+			//		newCell.growLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
+			//		newCell.moveChance = 0.0
+			//	}
+			newCell.growLegsAt = 99999999
+			newCell.legs = false
 
 			newCell._originalMoveChance = newCell.moveChance
 			newCell._originalGrowLegsAt = newCell.growLegsAt
@@ -1192,8 +1233,8 @@ func spontaneouslyGenerateCell() {
 			newCell._originalgrowCanopyAt = newCell.growCanopyAt
 
 			nextMoment.cells = append(nextMoment.cells, newCell)
+			log(LOGTYPE_CELLEFFECT, "Added cell %d to next moment\n", newCell.id)
 			nextMoment.cellsSpatialIndex[xTry][yTry] = newCell
-			foundSpotYet = true
 		}
 		nextMomentYXLocks[yTry][xTry].Unlock()
 		tries += 1
@@ -1277,15 +1318,15 @@ func shineOnAllCells() {
 		var isDayTime = momentNum%100 <= 50
 		var wg = &sync.WaitGroup{}
 		for yi := range currentMoment.cellsSpatialIndex {
-			wg.Add(1)
-			go shineThisRow(yi, isDayTime, wg)
+			//wg.Add(1)
+			shineThisRow(yi, isDayTime, wg)
 
 			//log(LOGTYPE_HIGHFREQUENCY, "Shiner touching on %d, %d \n", xi, yi)
 			//unlockYXRangeInclusive(yi-1, yi+1, xi-1, xi+1, "shiner")
 			//TODO: May have placed lock/unlocks here incorrectly
 		}
 		log(LOGTYPE_MAINLOOPSINGLE, "Ending shine\n")
-		wg.Wait()
+		//wg.Wait()
 	}
 
 }
@@ -1302,7 +1343,7 @@ func shineThisRow(yi int, isDayTime bool, wg *sync.WaitGroup) {
 
 			//TODO: should this be next moment?
 			//var shineAmountForThisSquare = SHINE_ENERGY_AMOUNT //* (float64(xi) / float64(GRID_HEIGHT)) //  GRADIENT
-			var shineAmountForThisSquare = SHINE_ENERGY_AMOUNT * SHINE_FREQUENCY // * float64(float64(yi)/float64(GRID_HEIGHT))
+			var shineAmountForThisSquare = SHINE_ENERGY_AMOUNT * SHINE_FREQUENCY //* float64(float64(yi)/float64(GRID_HEIGHT))
 			//fmt.Printf("shine amount at %d: %f", yi, shineAmountForThisSquare)
 			//var shineAmountForThisSquare = 0.0
 			//if xi%10 == 0 || (xi+1)%10 == 0 || (yi%10 == 0) || ((yi+1)%10) == 0 {
@@ -1316,7 +1357,7 @@ func shineThisRow(yi int, isDayTime bool, wg *sync.WaitGroup) {
 			//No sun at night
 		}
 	}
-	wg.Done()
+	//wg.Done()
 }
 
 func oldShineMethod(cell *Cell, shineAmountForThisSquare float64) {
@@ -1344,7 +1385,7 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 		surroundingCellsWithCanopiesAndMe[0] = cell
 		numSurrounders += 1
 	}
-
+	//lockYXRangeInclusive(y-1, y+1, x-1, x+1, "shiner")
 	for relativeX := -1; relativeX < 2; relativeX++ {
 		for relativeY := -1; relativeY < 2; relativeY++ {
 			var xTry = x + relativeX
@@ -1359,6 +1400,7 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 			}
 		}
 	}
+	//unlockYXRangeInclusive(y-1, y+1, x-1, x+1, "shiner")
 	var energyToEachCell = shineAmountForThisSquare / float64(numSurrounders)
 	for i := 0; i < numSurrounders; i++ {
 		surroundingCellsWithCanopiesAndMe[i].increaseEnergy(energyToEachCell)
