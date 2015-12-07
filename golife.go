@@ -13,25 +13,27 @@ import (
 
 //FOUNDATIONAL WORLD VARIABLES
 
-const initialCellCount = 500
+const initialCellCount = 200
 
 const CELL_LIFESPAN = 300
 
-const BASE_CELL_UPKEEP = 500.0
-const CANOPY_UPKEEP = 500.0
+const BASE_CELL_UPKEEP = 1.0
+const CANOPY_UPKEEP = 4.0 * BASE_CELL_UPKEEP
 const LEGS_UPKEEP = .2
 
 const MOVE_COST = 5
 const THINKING_COST = 3.0
 const REPRODUCE_COST = 30
-const GROWCANOPY_COST = 500.0
-const GROWLEGS_COST = 37
+const GROWCANOPY_COST = 4.0 * REPRODUCE_COST
+const GROWLEGS_COST = 45
+
+const RANDOM_SEED = true
 
 var SHINE_ENERGY_AMOUNT = 4.0
 
 const ACTUAL_WAIT_MULTIPLIER = 3
 
-const printGridEveryNTurns = 20
+const PRINTGRID_EVERY_N_TURNS = 20
 
 const SPECIES_DIVERGENCE_THRESHOLD = 65
 
@@ -42,7 +44,7 @@ var MAX_TRIES = 100
 var logTypesEnabled = []int{LOGTYPE_PRINTGRID_GRID, LOGTYPE_SPECIESREPORT, LOGTYPE_PRINTGRID_SUMMARY, LOGTYPE_FINALSTATS}
 
 const GRID_WIDTH = 31
-const GRID_HEIGHT = 150
+const GRID_HEIGHT = 31
 
 const BIGGRID_INCREMENT = 10
 
@@ -248,14 +250,16 @@ func (cell *Cell) Maintain() {
 		totalUpkeep += CANOPY_UPKEEP
 	}
 	log(LOGTYPE_CELLEFFECT, "cell %d is about to be maintained\n", cell.id)
-	cell.decreaseEnergy(totalUpkeep * float64(cell.age) / CELL_LIFESPAN)
+	cell.decreaseEnergy((totalUpkeep * float64(cell.age)) / CELL_LIFESPAN)
 	//cell.decreaseEnergy(40)
 	//	cell._energy -= totalUpkeep * float64(cell.age) / CELL_LIFESPAN
 	cell.increaseAge(1)
 }
 
 func (cell *Cell) increaseAge(amt int) {
-	cell.age = cell.age + amt
+	if !cell.isDead() {
+		cell.nextMomentSelf.age = cell.nextMomentSelf.age + amt
+	}
 }
 
 type CellAction struct {
@@ -420,7 +424,9 @@ func feedQueuedNonCellActionsToExecuter() {
 func main() {
 
 	//FIRST-TIME INIT
-	//	rand.Seed(int64(time.Now().Second()))
+	if RANDOM_SEED {
+		//	rand.Seed(int64(time.Now().Second()))
+	}
 	defer profile.Start(profile.CPUProfile).Stop()
 
 	cellPool = newPool(maxCellCount)
@@ -436,7 +442,7 @@ func main() {
 
 	var t1all = time.Now()
 	for momentNum = 0; momentNum < MAX_MOMENTS; momentNum++ {
-		if momentNum%printGridEveryNTurns == 0 {
+		if momentNum%PRINTGRID_EVERY_N_TURNS == 0 {
 			printGrid(currentMoment)
 			printSpeciesReport(currentMoment, NUM_TOP_SPECIES_TO_PRINT)
 		}
@@ -1020,7 +1026,7 @@ func reproduce(cell *Cell) {
 			//	babyCell.moveChance = math.Max(0.0, float64(cell.moveChance+float64(rand.Intn(7)-3)))
 			//}
 			//TODO: Just trying to disable this
-			babyCell.growLegsAt = 9999999
+			babyCell.growLegsAt = 999
 
 			babyCell.percentChanceWait = int(math.Max(0.0, float64(cell.percentChanceWait+rand.Intn(7)-3)))
 
@@ -1221,7 +1227,7 @@ func spontaneouslyGenerateCell() {
 			//		newCell.growLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
 			//		newCell.moveChance = 0.0
 			//	}
-			newCell.growLegsAt = 99999999
+			newCell.growLegsAt = 9999
 			newCell.legs = false
 
 			newCell._originalMoveChance = newCell.moveChance
@@ -1343,7 +1349,7 @@ func shineThisRow(yi int, isDayTime bool, wg *sync.WaitGroup) {
 
 			//TODO: should this be next moment?
 			//var shineAmountForThisSquare = SHINE_ENERGY_AMOUNT //* (float64(xi) / float64(GRID_HEIGHT)) //  GRADIENT
-			var shineAmountForThisSquare = SHINE_ENERGY_AMOUNT * SHINE_FREQUENCY //* float64(float64(yi)/float64(GRID_HEIGHT))
+			var shineAmountForThisSquare = 3.0 //SHINE_ENERGY_AMOUNT * SHINE_FREQUENCY //* float64(float64(yi)/float64(GRID_HEIGHT))
 			//fmt.Printf("shine amount at %d: %f", yi, shineAmountForThisSquare)
 			//var shineAmountForThisSquare = 0.0
 			//if xi%10 == 0 || (xi+1)%10 == 0 || (yi%10 == 0) || ((yi+1)%10) == 0 {
