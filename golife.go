@@ -4,260 +4,17 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"sort"
 	"sync"
 	"time"
 
 	"github.com/davecheney/profile"
+	. "github.com/mlinnem/golife/main/lib"
 )
-
-//FOUNDATIONAL WORLD VARIABLES
-
-//---RUN_CONDITIONS-----
-const RANDOM_SEED = true
-
-const MAX_MOMENTS = 9000
-
-//---WORLD_CONDITIONS---
-const SHINE_ENERGY_AMOUNT = 2.0
-
-const INITIAL_CELL_COUNT = 200
-
-const GRID_WIDTH = 93
-const GRID_HEIGHT = 450
-
-//---UKEEEP-------------
-const CELL_LIFESPAN = 300
-
-const BASE_CELL_UPKEEP = 1.0
-const CANOPY_UPKEEP = 4.0 * BASE_CELL_UPKEEP
-const LEGS_UPKEEP = .2
-
-//---ACTION_COSTS-------
-const MOVE_COST = 5
-const THINKING_COST = 5.0
-const REPRODUCE_COST = 30
-const GROWCANOPY_COST = 4.0 * REPRODUCE_COST
-const GROWLEGS_COST = 45
-
-//UI VARIABLES
-const LOGTYPES_ENABLED = []int{LOGTYPE_PRINTGRID_BIGGRID, LOGTYPE_PRINTGRID_SUMMARY, LOGTYPE_SPECIESREPORT, LOGTYPE_PRINTGRID_SUMMARY, LOGTYPE_FINALSTATS}
-
-const PRINTGRID_EVERY_N_TURNS = 10
-
-const SPECIES_DIVERGENCE_THRESHOLD = 65
-
-const BIGGRID_INCREMENT = 3
-
-const NUM_TOP_SPECIES_TO_PRINT = 10
-
-const ACTUAL_WAIT_MULTIPLIER = 3
-
-const MAX_TRIES_TO_FIND_EMPTY_GRID_COORD = 100
-
-//---PERFORMANCE_VARIABLES---
-const CELLACTIONDECIDER_ROUTINECOUNT = 25
-const CELLACTIONDECIDER_ROUTINECOUNT = 1
-const NONCELLACTIONDECIDER_ROUTINECOUNT = 1
-
-const MAX_CELL_COUNT = 900000
-
-const CELLSATATIME_PER_DECIDER = 1000
-
-//END CONSTANTS-x-x-x-x-x-x-x-x-x-x-x
-
-var secretIDCounter = 0
-
-func newCell() *Cell {
-	secretIDCounter++
-	return &Cell{_secretID: secretIDCounter}
-}
-
-type Pool struct {
-	pool chan *Cell
-}
 
 const SURROUNDINGS_SIZE = 9
 
-type SurroundingsPool struct {
-	pool chan *[SURROUNDINGS_SIZE]*Cell
-}
-
-const CELLS_PER_BUNDLE = 500
-
-type CellBundle struct {
-	cells []*Cell
-}
-
-type CellActionBundle struct {
-	actions []*CellAction
-}
-
-// NewPool creates a new pool of Cells
-func newPool(max int) *Pool {
-	return &Pool{
-		pool: make(chan *Cell, max),
-	}
-}
-
-func newSurroundingsPool(max int) *SurroundingsPool {
-	return &SurroundingsPool{
-		pool: make(chan *[SURROUNDINGS_SIZE]*Cell, max),
-	}
-}
-
-// Borrow a Cell from the pool.
-func (p *Pool) Borrow() *Cell {
-	var c *Cell
-	select {
-	case c = <-p.pool:
-	default:
-		c = newCell()
-	}
-	return c
-}
-
-func (p *SurroundingsPool) Borrow() *[SURROUNDINGS_SIZE]*Cell {
-	var c *[SURROUNDINGS_SIZE]*Cell
-	select {
-	case c = <-p.pool:
-	default:
-		c = newSurroundings()
-	}
-	return c
-}
-
-// Return returns a Cell to the pool.
-//TODO: Should all these be pointers to slices rather than slices? *[]*Cell instead
-func (p *SurroundingsPool) Return(c *[SURROUNDINGS_SIZE]*Cell) {
-	select {
-	case p.pool <- c:
-	default:
-
-	}
-}
-
-func (p *Pool) Return(c *Cell) {
-	select {
-	case p.pool <- c:
-	default:
-
-	}
-}
-
 func newSurroundings() *[SURROUNDINGS_SIZE]*Cell {
 	return &[SURROUNDINGS_SIZE]*Cell{}
-}
-
-//TODO: Make it easy to add a field and have it appear in all the right places Re: copying and whatnot
-type Cell struct {
-	_energy                           float64
-	dead                              bool
-	x                                 int
-	y                                 int
-	id                                int
-	_timeLeftToWait                   int
-	clockRate                         int
-	canopy                            bool
-	legs                              bool
-	growCanopyAt                      float64
-	growLegsAt                        float64
-	energySpentOnReproducing          float64
-	nextMomentSelf                    *Cell
-	age                               int
-	speciesID                         int
-	percentChanceWait                 int     //out of 100
-	moveChance                        float64 //out of 100
-	_secretID                         int
-	_originalgrowCanopyAt             float64
-	_originalPercentChanceWait        int
-	_originalEnergySpentOnReproducing float64
-	_originalEnergyReproduceThreshold float64
-	_originalClockRate                int
-	_originalGrowLegsAt               float64
-	_originalMoveChance               float64
-	energyReproduceThreshold          float64
-	speciesColor                      *TextColorBookend
-}
-
-func (cell *Cell) decreaseEnergy(amt float64) {
-	//TODO: Inlined dead stuff for performance reasons
-	if (!(cell._energy <= 0.0)) || cell.nextMomentSelf != nil {
-		//	if !cell.isDead() {
-		//log(LOGTYPE_CELLEFFECT, "the future cell %d currently has %f energy\n", cell.nextMomentSelf.id, cell.nextMomentSelf._energy)
-		//log(LOGTYPE_CELLEFFECT, "decreased cell %d by %f\n", cell.nextMomentSelf.id, amt)
-		cell.nextMomentSelf._energy = cell.nextMomentSelf._energy - amt
-		//log(LOGTYPE_CELLEFFECT, "cell %d will now have %f energy\n", cell.nextMomentSelf.id, cell.nextMomentSelf._energy)
-	}
-}
-
-func (cell *Cell) increaseEnergy(amt float64) {
-	//TODO: Inlined dead stuff for performance reasons
-	if (!(cell._energy <= 0.0)) || cell.nextMomentSelf != nil {
-		//	log(LOGTYPE_CELLEFFECT, "the future cell %d currently has %f energy\n", cell.nextMomentSelf.id, cell.nextMomentSelf._energy)
-		//	log(LOGTYPE_CELLEFFECT, "increased cell %d by %f\n", cell.nextMomentSelf.id, amt)
-		cell.nextMomentSelf._energy = cell.nextMomentSelf._energy + amt
-
-		//	log(LOGTYPE_CELLEFFECT, "cell %d will now have %f energy\n", cell.nextMomentSelf.id, cell.nextMomentSelf._energy)
-	}
-}
-
-func (oldCell *Cell) Copy() *Cell {
-	//TODO: Can this not be done by just a generic struct copy?
-	var newCell = cellPool.Borrow()
-	newCell._energy = oldCell._energy
-	newCell.age = oldCell.age
-	newCell.x = oldCell.x
-	newCell.id = oldCell.id
-	newCell.y = oldCell.y
-	newCell.speciesID = oldCell.speciesID
-	newCell.percentChanceWait = oldCell.percentChanceWait
-	newCell.speciesColor = oldCell.speciesColor
-	newCell.energySpentOnReproducing = oldCell.energySpentOnReproducing
-	newCell.canopy = oldCell.canopy
-	newCell.clockRate = oldCell.clockRate
-	newCell.growCanopyAt = oldCell.growCanopyAt
-	newCell.energyReproduceThreshold = oldCell.energyReproduceThreshold
-	newCell.legs = oldCell.legs
-	newCell.moveChance = oldCell.moveChance
-	newCell.growLegsAt = oldCell.growLegsAt
-	newCell._originalMoveChance = oldCell._originalMoveChance
-	newCell._originalGrowLegsAt = oldCell._originalGrowLegsAt
-	newCell._originalEnergyReproduceThreshold = oldCell._originalEnergyReproduceThreshold
-	newCell._originalEnergySpentOnReproducing = oldCell._originalEnergySpentOnReproducing
-	newCell._originalgrowCanopyAt = oldCell._originalgrowCanopyAt
-	newCell._originalPercentChanceWait = oldCell._originalPercentChanceWait
-	newCell._originalClockRate = oldCell._originalClockRate
-
-	return newCell
-}
-
-func (oldCell *Cell) ContinueOn() *Cell {
-	var continuedCell = oldCell.Copy()
-	log(LOGTYPE_CELLEFFECT, "cell %d now has a future self established during moment %d\n", oldCell.id, momentNum)
-	oldCell.nextMomentSelf = continuedCell
-	return continuedCell
-}
-
-func (cell *Cell) Maintain() {
-	var totalUpkeep = BASE_CELL_UPKEEP
-	if cell.legs {
-		totalUpkeep += LEGS_UPKEEP
-	}
-	if cell.canopy {
-		totalUpkeep += CANOPY_UPKEEP
-	}
-	log(LOGTYPE_CELLEFFECT, "cell %d is about to be maintained\n", cell.id)
-	cell.decreaseEnergy((totalUpkeep * float64(cell.age)) / CELL_LIFESPAN)
-	//cell.decreaseEnergy(40)
-	//	cell._energy -= totalUpkeep * float64(cell.age) / CELL_LIFESPAN
-	cell.increaseAge(1)
-}
-
-func (cell *Cell) increaseAge(amt int) {
-	if !cell.isDead() {
-		cell.nextMomentSelf.age = cell.nextMomentSelf.age + amt
-	}
 }
 
 type CellAction struct {
@@ -269,95 +26,15 @@ type NonCellAction struct {
 	actionType int
 }
 
-//const GRID_WIDTH = 1
-//const GRID_HEIGHT = 100
-
-type Moment struct {
-	cells             []*Cell
-	cellsSpatialIndex [GRID_WIDTH][GRID_HEIGHT]*Cell
-}
-
-func (moment *Moment) RemoveCells(cellsToDelete []*Cell) {
-	//TODO: Wow I bet this performance sucks. Can we do better?
-
-	//w := 0 // write index
-	data := make([]*Cell, 0, len(moment.cells)-len(cellsToDelete))
-loop:
-	for _, cellThatExists := range moment.cells {
-		for _, cellToDelete := range cellsToDelete {
-			if cellThatExists == cellToDelete {
-				cellPool.Return(cellToDelete)
-				moment.cellsSpatialIndex[cellToDelete.x][cellToDelete.y] = nil
-				continue loop
-			}
-		}
-		//TODO: No way in hell does this have good performance
-		data = append(data, cellThatExists)
-		//w++
-	}
-	moment.cells = data
-
-}
-
-func (moment *Moment) ReturnCellsToPool() {
-	for ci := range moment.cells {
-		var cellToReturn = moment.cells[ci]
-		cellPool.Return(cellToReturn)
-	}
-}
-
-//TODO: Maybe do this in tandem with goroutine in future
-func (moment *Moment) Clean(wg *sync.WaitGroup) {
-	//nextMomentLock.Lock()
-	//for ci := range moment.cells {
-	//moment.cells[ci] = nil
-	//}
-	moment.cells = []*Cell{}
-	//moment.cellsSpatialIndex = [][]*Cell{{}}
-	//var internalwg sync.WaitGroup
-	log(LOGTYPE_MAINLOOPSINGLE, "You made it to right before allocating the big cell thing\n")
-	//TODO: Letting garbage collector take care of cleaning rather than manual for now
-	moment.cellsSpatialIndex = [GRID_WIDTH][GRID_HEIGHT]*Cell{}
-	// for yi := range moment.cellsSpatialIndex {
-	// 	//internalwg.Add(1)
-	// 	moment.CleanRow(yi)
-	// }
-	// //internalwg.Wait()
-	wg.Done()
-	//nextMomentLock.Unlock()
-}
-
-func (moment *Moment) CleanRow(yi int) {
-	for xi := range moment.cellsSpatialIndex[yi] {
-		moment.cellsSpatialIndex[xi][yi] = nil
-	}
-	//wg.Done()
-}
-
-var cellPool *Pool
-var surroundingsPool *SurroundingsPool
-
-var oldMoment *Moment
-var momentBeingCleaned *Moment
-var momentReadyToBeNext *Moment
-var currentMoment *Moment
-var nextMoment *Moment
-
-//var nextMomentLock *sync.Mutex
-
-//var nextMomentYXLocks [GRID_WIDTH][GRID_HEIGHT]sync.Mutex
 var bulkGrabLock *sync.Mutex
 
 var cellActionExecuterWG sync.WaitGroup
 
-//var cellsReadyForAction = make(chan *CellBundle, MAX_CELL_COUNT)
-//var cellsReadyForAction = make(chan *Cell, MAX_CELL_COUNT)
 var cellsReadyForAction = make(chan []*Cell, MAX_CELL_COUNT)
 
 var queuedNonCellActions []*NonCellAction
 var pendingNonCellActions = make(chan *NonCellAction, MAX_CELL_COUNT)
 
-//var pendingCellActions = make(chan *CellActionBundle, MAX_CELL_COUNT)
 var pendingCellActions = make(chan *CellAction, MAX_CELL_COUNT)
 
 var cellActionDeciderWG sync.WaitGroup
@@ -368,7 +45,7 @@ var waitForCleaning sync.WaitGroup
 func createThisManyCells(startHere int, endBeforeHere int, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for i := startHere; i < endBeforeHere; i++ {
-		cellPool.Borrow()
+		CellPool.Borrow()
 	}
 }
 
@@ -384,38 +61,38 @@ func startPersistentThreads() {
 	for i := 0; i < CELLACTIONDECIDER_ROUTINECOUNT; i++ {
 		go cellActionDecider(&cellActionDeciderWG)
 	}
-	for i := 0; i < CELLACTIONDECIDER_ROUTINECOUNT; i++ {
+	for i := 0; i < CELLACTIONEXECUTER_ROUTINECOUNT; i++ {
 		go cellActionExecuter(&cellActionExecuterWG)
 	}
 }
 
 func transferLiveCellsToNextMoment() {
-	nextMoment.cells = make([]*Cell, 0, len(currentMoment.cells))
-	nextMoment.cellsSpatialIndex = [GRID_WIDTH][GRID_HEIGHT]*Cell{}
-	for _, currentMomentCell := range currentMoment.cells {
+	NextMoment.Cells = make([]*Cell, 0, len(CurrentMoment.Cells))
+	NextMoment.CellsSpatialIndex = [GRID_WIDTH][GRID_HEIGHT]*Cell{}
+	for _, CurrentMomentCell := range CurrentMoment.Cells {
 		//This takes place of reaper function
-		//log(LOGTYPE_HIGHFREQUENCY, "a cell %d, has %6.2f energy\n", currentMomentCell._secretID, currentMomentCell._energy)
-		if currentMomentCell._energy > 0 {
-			var nextMomentCell = currentMomentCell.ContinueOn()
-			nextMoment.cells = append(nextMoment.cells, nextMomentCell)
-			nextMoment.cellsSpatialIndex[nextMomentCell.x][nextMomentCell.y] = nextMomentCell
+		//Log(LOGTYPE_HIGHFREQUENCY, "a cell %d, has %6.2f energy\n", CurrentMomentCell._secretID, CurrentMomentCell.Energy)
+		if CurrentMomentCell.Energy > 0 {
+			var NextMomentCell = CurrentMomentCell.ContinueOn()
+			NextMoment.Cells = append(NextMoment.Cells, NextMomentCell)
+			NextMoment.CellsSpatialIndex[NextMomentCell.X][NextMomentCell.Y] = NextMomentCell
 		}
 	}
-	log(LOGTYPE_MAINLOOPSINGLE, "Transferred cells over to next moment by default, same loc\n")
+	Log(LOGTYPE_MAINLOOPSINGLE, "Transferred cells over to next moment by default, same loc\n")
 }
 
 func feedCurrentMomentCellsToActionDecider() {
 	var startSlice = 0
 	var endSlice = CELLS_PER_BUNDLE
 	for {
-		if endSlice < len(currentMoment.cells) {
+		if endSlice < len(CurrentMoment.Cells) {
 			cellActionDeciderWG.Add(1)
-			cellsReadyForAction <- currentMoment.cells[startSlice:endSlice]
+			cellsReadyForAction <- CurrentMoment.Cells[startSlice:endSlice]
 			startSlice += CELLS_PER_BUNDLE
 			endSlice += CELLS_PER_BUNDLE
 		} else {
 			cellActionDeciderWG.Add(1)
-			cellsReadyForAction <- currentMoment.cells[startSlice:]
+			cellsReadyForAction <- CurrentMoment.Cells[startSlice:]
 			break
 		}
 	}
@@ -438,26 +115,25 @@ func main() {
 	}
 	defer profile.Start(profile.CPUProfile).Stop()
 
-	cellPool = newPool(MAX_CELL_COUNT)
-	surroundingsPool = newSurroundingsPool(MAX_CELL_COUNT)
-	currentMoment = &Moment{}
-	nextMoment = &Moment{}
-	momentBeingCleaned = &Moment{}
+	CurrentMoment = &Moment{}
+	NextMoment = &Moment{}
+	MomentBeingCleaned = &Moment{}
 
-	//nextMomentYXLocks = [GRID_WIDTH][GRID_HEIGHT]sync.Mutex{}
 	bulkGrabLock = &sync.Mutex{}
 
 	startPersistentThreads()
 
 	var t1all = time.Now()
 	for momentNum = 0; momentNum < MAX_MOMENTS; momentNum++ {
+		CurrentMoment.MomentNum = momentNum
+		NextMoment.MomentNum = momentNum + 1
 		if momentNum%PRINTGRID_EVERY_N_TURNS == 0 {
-			printGrid(currentMoment)
-			printSpeciesReport(currentMoment, NUM_TOP_SPECIES_TO_PRINT)
+			PrintGrid(CurrentMoment)
+			PrintSpeciesReport(CurrentMoment, NUM_TOP_SPECIES_TO_PRINT)
 		}
 		var t1a = time.Now()
 		//var t1 = time.Now()
-		log(LOGTYPE_MAINLOOPSINGLE_PRIMARY, "moment %d...\n", momentNum)
+		Log(LOGTYPE_MAINLOOPSINGLE_PRIMARY, "moment %d...\n", momentNum)
 		//Assume all cells will be in same position in next moment
 		//TODO: Should this be happening elsewhere?
 		transferLiveCellsToNextMoment()
@@ -465,214 +141,63 @@ func main() {
 		feedCurrentMomentCellsToActionDecider()
 
 		//NOT going to wait for all actions to be decided before executing. Decisions can trigger actions right away (prepare for locking needs...)
-		//wait for all actionPickers and actionExecuters to be done  (nextMoment should be fully populated now)
+		//wait for all actionPickers and actionExecuters to be done  (NextMoment should be fully populated now)
 		cellActionDeciderWG.Wait()
 		cellActionExecuterWG.Wait()
 
 		//generate any nonCellActions that need to be generated
 		if momentNum == 0 {
-			log(LOGTYPE_MAINLOOPSINGLE, "Populating initial cells\n")
+			Log(LOGTYPE_MAINLOOPSINGLE, "Populating initial cells\n")
 			generateInitialNonCellActions(&nonCellActionExecuterWG)
 			//	close(queuedNonCellActions)
 		} else {
-			log(LOGTYPE_MAINLOOPSINGLE, "Generating cell maintenance and other stuff\n")
+			Log(LOGTYPE_MAINLOOPSINGLE, "Generating cell maintenance and other stuff\n")
 			generateSunshineAction(&nonCellActionExecuterWG)
 			generateCellMaintenanceAction(&nonCellActionExecuterWG)
 			//TODO: Testing reap removal
 			//generateGrimReaperAction(&nonCellActionExecuterWG)
 		}
 		//feed waitingNonCellActions to readyNonCellActions
-		log(LOGTYPE_MAINLOOPSINGLE, "Dumping non-cell actions into working queue (if any)\n")
+		Log(LOGTYPE_MAINLOOPSINGLE, "Dumping non-cell actions into working queue (if any)\n")
 
 		feedQueuedNonCellActionsToExecuter()
 
-		log(LOGTYPE_MAINLOOPSINGLE, "Transferred to non-cell executers...\n")
+		Log(LOGTYPE_MAINLOOPSINGLE, "Transferred to non-cell executers...\n")
 		//wait for all non-cell actions to be done
 		nonCellActionExecuterWG.Wait()
 
-		log(LOGTYPE_MAINLOOPSINGLE, "Non-cell Executers did their thing\n")
-		//nextMoment becomes current moment.
-		log(LOGTYPE_MAINLOOPSINGLE, "Right before we switch to next moment")
-		oldMoment = currentMoment
-		currentMoment = nextMoment
+		Log(LOGTYPE_MAINLOOPSINGLE, "Non-cell Executers did their thing\n")
+		//NextMoment becomes current moment.
+		Log(LOGTYPE_MAINLOOPSINGLE, "Right before we switch to next moment")
+		OldMoment = CurrentMoment
+		CurrentMoment = NextMoment
 		var tClean1 = time.Now()
 		waitForCleaning.Wait()
 		var tClean2 = time.Now()
 		var durClean = tClean1.Sub(tClean2).Seconds()
-		log(LOGTYPE_MAINLOOPSINGLE, "Waiting on cleaning took this long: %d\n", durClean)
+		Log(LOGTYPE_MAINLOOPSINGLE, "Waiting on cleaning took this long: %d\n", durClean)
 		var t2a = time.Now()
-		nextMoment = momentBeingCleaned
-		momentBeingCleaned = oldMoment
-		log(LOGTYPE_MAINLOOPSINGLE, "Right after the switcheroo")
-		log(LOGTYPE_MAINLOOPSINGLE, "About to wait for cleaning\n")
+		NextMoment = MomentBeingCleaned
+		MomentBeingCleaned = OldMoment
+		Log(LOGTYPE_MAINLOOPSINGLE, "Right after the switcheroo")
+		Log(LOGTYPE_MAINLOOPSINGLE, "About to wait for cleaning\n")
 		waitForCleaning.Add(1)
-		momentBeingCleaned.ReturnCellsToPool()
-		go momentBeingCleaned.Clean(&waitForCleaning)
+		MomentBeingCleaned.ReturnCellsToPool()
+		go MomentBeingCleaned.Clean(&waitForCleaning)
 
 		var dura = t2a.Sub(t1a).Seconds()
-		log(LOGTYPE_MAINLOOPSINGLE_PRIMARY, "Time of entire turn took %f\n", dura)
-		if len(currentMoment.cells) == 0 {
-			log(LOGTYPE_FAILURES, "Early termination due to all cells dying\n")
+		Log(LOGTYPE_MAINLOOPSINGLE_PRIMARY, "Time of entire turn took %f\n", dura)
+		if len(CurrentMoment.Cells) == 0 {
+			Log(LOGTYPE_FAILURES, "Early termination due to all cells dying\n")
 			break
 		}
 	}
 
-	log(LOGTYPE_FINALSTATS, "%d cells in final moment\n", len(currentMoment.cells))
+	Log(LOGTYPE_FINALSTATS, "%d cells in final moment\n", len(CurrentMoment.Cells))
 	var t2all = time.Now()
 
 	var durall = t2all.Sub(t1all).Seconds()
-	log(LOGTYPE_FINALSTATS, "Time of entire run took %f\n", durall)
-}
-
-func makeCanopyBuildConditionOnCertainEnergy(energyLevel float64) func(*Cell) bool {
-	var makeCanopyEnergyThreshold = energyLevel
-	var buildConditionFunction = func(cell *Cell) bool {
-		return cell.canopy == false && cell._energy > makeCanopyEnergyThreshold
-	}
-	return buildConditionFunction
-}
-
-func printCell(cell *Cell) {
-	if cell != nil {
-		var colorStart = cell.speciesColor.startSequence
-		var colorEnd = cell.speciesColor.endSequence
-		if cell.canopy == true {
-			log(LOGTYPE_PRINTGRID_GRID, colorStart+"X"+colorEnd)
-			log(LOGTYPE_PRINTGRID_BIGGRID, colorStart+"X"+colorEnd)
-		} else {
-			log(LOGTYPE_PRINTGRID_GRID, colorStart+"x"+colorEnd)
-			log(LOGTYPE_PRINTGRID_BIGGRID, colorStart+"x"+colorEnd)
-		}
-	} else {
-		log(LOGTYPE_PRINTGRID_GRID, " ")
-	}
-}
-
-func printGrid(moment *Moment) {
-	if containsInt(LOGTYPES_ENABLED, LOGTYPE_PRINTGRID_GRID) {
-		log(LOGTYPE_PRINTGRID_GRID, "\n")
-		for row := range moment.cellsSpatialIndex {
-			for col := range moment.cellsSpatialIndex[row] {
-				var cell = moment.cellsSpatialIndex[row][col]
-				printCell(cell)
-			}
-			log(LOGTYPE_PRINTGRID_GRID, "\n")
-		}
-	} else if containsInt(LOGTYPES_ENABLED, LOGTYPE_PRINTGRID_BIGGRID) {
-		log(LOGTYPE_PRINTGRID_BIGGRID, "\n")
-		for row := 0; row < len(moment.cellsSpatialIndex); row += BIGGRID_INCREMENT {
-			for col := 0; col < len(moment.cellsSpatialIndex); col += BIGGRID_INCREMENT {
-				var cell = moment.cellsSpatialIndex[row][col]
-				printCell(cell)
-			}
-			log(LOGTYPE_PRINTGRID_BIGGRID, "\n")
-		}
-	}
-	log(LOGTYPE_PRINTGRID_GRID, "\n")
-
-	var energyReproduceThresholdTotal = 0.0
-	var energySpentOnReproducingTotal = 0.0
-	var canopyTotal = 0
-	var growCanopyAtTotal = 0.0
-	var percentChanceWaitTotal = 0
-	var clockRateTotal = 0
-	var moveChanceTotal = 0.0
-	var legsTotal = 0
-	for ci := range moment.cells {
-		var cell = moment.cells[ci]
-		//TODO: Refactor all this crap to use cell variable
-		energyReproduceThresholdTotal += cell.energyReproduceThreshold
-		energySpentOnReproducingTotal += cell.energySpentOnReproducing
-		percentChanceWaitTotal += cell.percentChanceWait
-		clockRateTotal += cell.clockRate
-		if moment.cells[ci].canopy == true {
-			canopyTotal += 1
-			growCanopyAtTotal += moment.cells[ci].growCanopyAt
-		}
-		if cell.legs == true {
-			legsTotal += 1
-			moveChanceTotal += cell.moveChance
-		}
-		log(LOGTYPE_PRINTGRIDCELLS, "(Cell) %d: %d,%d with %f, age %d, reprod at %f, grew canopy at %f, reproduces with %f\n", cell.id, moment.cells[ci].x, moment.cells[ci].y, moment.cells[ci]._energy, moment.cells[ci].age, moment.cells[ci].energyReproduceThreshold, moment.cells[ci].growCanopyAt, cell.energySpentOnReproducing)
-	}
-
-	log(LOGTYPE_PRINTGRID_SUMMARY, "-----SUMMARY STATE-----\n")
-	log(LOGTYPE_PRINTGRID_SUMMARY, "moment %d...\n", momentNum)
-
-	log(LOGTYPE_PRINTGRID_SUMMARY, "%d cells total\n\n", len(moment.cells))
-	log(LOGTYPE_MAINLOOPSINGLE, "Cell Count: %d\n", len(currentMoment.cells))
-	var energyReproduceThresholdAvg = energyReproduceThresholdTotal / float64(len(moment.cells))
-	var growCanopyAtAvg = growCanopyAtTotal / float64(canopyTotal)
-	var energySpentOnReproducingAvg = energySpentOnReproducingTotal / float64(len(moment.cells))
-	var percentChanceWaitAvg = float64(percentChanceWaitTotal) / float64(len(moment.cells))
-	var clockRateAvg = float64(clockRateTotal) / float64(len(moment.cells))
-	var percentMoveAvg = float64(moveChanceTotal) / float64(legsTotal)
-	log(LOGTYPE_PRINTGRID_SUMMARY, "Energy Reproduce Threshold Average: %f\n", energyReproduceThresholdAvg)
-	log(LOGTYPE_PRINTGRID_SUMMARY, "Energy Spent on Reproducing Average: %f\n", energySpentOnReproducingAvg)
-	log(LOGTYPE_PRINTGRID_SUMMARY, "Percent Chance to Wait Average: %f\n", percentChanceWaitAvg)
-	log(LOGTYPE_PRINTGRID_SUMMARY, "Average Clock Rate: %f\n", clockRateAvg)
-	log(LOGTYPE_PRINTGRID_SUMMARY, "Canopy Total: %d\n", canopyTotal)
-	log(LOGTYPE_PRINTGRID_SUMMARY, "Grew Canopy At Average: %f\n", growCanopyAtAvg)
-	log(LOGTYPE_PRINTGRID_SUMMARY, "Legs Total: %d\n", legsTotal)
-	log(LOGTYPE_PRINTGRID_SUMMARY, "Percent Chance to Move (with legs) Average: %f\n", percentMoveAvg)
-	log(LOGTYPE_PRINTGRID_SUMMARY, "New species so far: %d\n", speciesCounter)
-
-	log(LOGTYPE_PRINTGRID_SUMMARY, "\n\n\n")
-}
-
-//from http://stackoverflow.com/questions/18695346/how-to-sort-a-mapstringint-by-its-values
-func rankByCount(wordFrequencies map[string]int) PairList {
-	pl := make(PairList, len(wordFrequencies))
-	i := 0
-	for k, v := range wordFrequencies {
-		pl[i] = Pair{k, v}
-		i++
-	}
-	sort.Sort(sort.Reverse(pl))
-	return pl
-}
-
-type Pair struct {
-	Key   string
-	Value int
-}
-
-type PairList []Pair
-
-func (p PairList) Len() int           { return len(p) }
-func (p PairList) Less(i, j int) bool { return p[i].Value < p[j].Value }
-func (p PairList) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
-
-func printSpeciesReport(moment *Moment, topXSpecies int) {
-	var speciesIDToCount = make(map[string]int)
-	var speciesIDToSpecimen = make(map[string]*Cell)
-	for ci := range moment.cells {
-		var cell = moment.cells[ci]
-		var speciesIDString = string(cell.speciesID)
-		var speciesCount, exists = speciesIDToCount[speciesIDString]
-		if exists {
-			speciesIDToCount[speciesIDString] = speciesCount + 1
-		} else {
-			speciesIDToCount[speciesIDString] = 1
-			speciesIDToSpecimen[speciesIDString] = cell
-		}
-	}
-
-	var speciesIDByCount = rankByCount(speciesIDToCount)
-	var realTopXSpecies = int(math.Min(float64(topXSpecies), float64(len(speciesIDByCount))))
-	var topXSpeciesIDByCount = speciesIDByCount[:realTopXSpecies]
-	log(LOGTYPE_SPECIESREPORT, "\n")
-	log(LOGTYPE_SPECIESREPORT, "-----SPECIES REPORT----\n")
-	for _, pair := range topXSpeciesIDByCount {
-		var speciesID = pair.Key
-		var count = speciesIDToCount[speciesID]
-		//TODO: This bugged
-		var specimen *Cell = speciesIDToSpecimen[speciesID]
-
-		log(LOGTYPE_SPECIESREPORT, "Species %s\t "+specimen.speciesColor.startSequence+"x"+specimen.speciesColor.endSequence+"\t"+"\t"+"Count: %d\t reprod threshold: %6.1f\t reprod energy: %6.1f\t gcanopy thresh: %6.1f\t wait percent: %d\t clock rate %d\t gleg thresh: %6.1f\n",
-			speciesID, count, specimen._originalEnergyReproduceThreshold, specimen._originalEnergySpentOnReproducing, specimen._originalgrowCanopyAt, specimen._originalPercentChanceWait, specimen._originalClockRate, specimen._originalGrowLegsAt)
-	}
-	log(LOGTYPE_SPECIESREPORT, "\n")
+	Log(LOGTYPE_FINALSTATS, "Time of entire run took %f\n", durall)
 }
 
 const (
@@ -717,7 +242,7 @@ func generateCellMaintenanceAction(wg *sync.WaitGroup) {
 func nonCellActionExecuter(wg *sync.WaitGroup) {
 	for {
 		var nonCellAction = <-pendingNonCellActions
-		//nextMomentLock.Lock()
+		//NextMomentLock.Lock()
 		//route it to function depending on its type
 		switch nonCellAction.actionType {
 		case noncellaction_spontaneouslyPlaceCell:
@@ -733,72 +258,7 @@ func nonCellActionExecuter(wg *sync.WaitGroup) {
 		}
 
 		wg.Done()
-		//nextMomentLock.Unlock()
-	}
-}
-
-//var REPRODUCE_ENERGY_THRESHOLD = 100.0
-func (cell *Cell) shouldWait() bool {
-	return rand.Intn(100) < cell.percentChanceWait
-}
-
-func (cell *Cell) isDead() bool {
-	//TODO: Why do I have to check future self as well?
-
-	return cell._energy <= 0 || cell.nextMomentSelf == nil
-}
-
-func (cell *Cell) isTimeToReproduce() bool {
-	var isThereASpotToReproduce = false
-	for relativeX := -1; relativeX < 2; relativeX++ {
-		for relativeY := -1; relativeY < 2; relativeY++ {
-			var xTry = cell.x + relativeX
-			var yTry = cell.y + relativeY
-			if !isOccupied(xTry, yTry, nextMoment) {
-				isThereASpotToReproduce = true
-				goto foundSpot
-			}
-		}
-	}
-
-foundSpot:
-	if !isThereASpotToReproduce {
-		return false
-	}
-	return cell._energy > cell.energyReproduceThreshold
-}
-
-func (cell *Cell) isReadyToGrowCanopy() bool {
-	return cell.canopy == false && cell._energy > cell.growCanopyAt
-}
-
-func (cell *Cell) wantsToAndCanMove() bool {
-	var isThereASpotToMove = false
-	for relativeX := -1; relativeX < 2; relativeX++ {
-		for relativeY := -1; relativeY < 2; relativeY++ {
-			var xTry = cell.x + relativeX
-			var yTry = cell.y + relativeY
-			if !isOccupied(xTry, yTry, nextMoment) {
-				isThereASpotToMove = true
-				goto foundSpot
-			}
-		}
-	}
-
-foundSpot:
-	if !isThereASpotToMove {
-		return false
-	}
-	return cell._energy > MOVE_COST
-}
-
-func (cell *Cell) isReadyToGrowLegs() bool {
-	return cell.legs == false && cell._energy > cell.growLegsAt
-}
-
-func (cell *Cell) countDown_timeLeftToWait() {
-	if !cell.isDead() {
-		cell.nextMomentSelf._timeLeftToWait -= 1
+		//NextMomentLock.Unlock()
 	}
 }
 
@@ -806,219 +266,96 @@ var GUESS_AT_PERCENT_CELLS_ACTING = 0.1
 
 func cellActionDecider(wg *sync.WaitGroup) {
 	for {
-
-		//	var cellBundle = <-cellsReadyForAction
-		//for _, cell := range cellBundle.cells {
 		var cellSlice = <-cellsReadyForAction
-		//var cellActionBundle = CellActionBundle{}
-		//	cellActionBundle.actions = make([]*CellAction, 0, int(float64(len(cellBundle.cells))*GUESS_AT_PERCENT_CELLS_ACTING*2))
 		for _, cell := range cellSlice {
-			if cell._timeLeftToWait > 0 {
-				cell.countDown_timeLeftToWait()
+			if cell.TimeLeftToWait > 0 {
+				cell.CountDown_TimeLeftToWait()
 			} else {
-				if cell.isReadyToGrowCanopy() {
+				if cell.IsReadyToGrowCanopy() {
 					cellActionExecuterWG.Add(1)
 					pendingCellActions <- &CellAction{cell, cellaction_growcanopy}
-					//	cellActionBundle.actions = append(cellActionBundle.actions, &CellAction{cell, cellaction_growcanopy})
-
-				} else if cell.isReadyToGrowLegs() {
+				} else if cell.IsReadyToGrowLegs() {
 					cellActionExecuterWG.Add(1)
 					pendingCellActions <- &CellAction{cell, cellaction_growlegs}
-					//cellActionBundle.actions = append(cellActionBundle.actions, &CellAction{cell, cellaction_growlegs})
-
-				} else if cell.isTimeToReproduce() {
+				} else if cell.IsTimeToReproduce() {
 					cellActionExecuterWG.Add(1)
 					pendingCellActions <- &CellAction{cell, cellaction_reproduce}
-					//cellActionBundle.actions = append(cellActionBundle.actions, &CellAction{cell, cellaction_reproduce})
-
-				} else if cell.wantsToAndCanMove() {
+				} else if cell.WantsToAndCanMove() {
 					cellActionExecuterWG.Add(1)
 					pendingCellActions <- &CellAction{cell, cellaction_moverandom}
-					//cellActionBundle.actions = append(cellActionBundle.actions, &CellAction{cell, cellaction_moverandom})
-
-				} else if cell.shouldWait() {
+				} else if cell.ShouldWait() {
 					cellActionExecuterWG.Add(1)
 					pendingCellActions <- &CellAction{cell, cellaction_wait}
-					//cellActionBundle.actions = append(cellActionBundle.actions, &CellAction{cell, cellaction_wait})
-
 				} else {
 					//no action at all. Hopefully don't need to submit a null action
 				}
-				cell.decreaseEnergy(THINKING_COST)
-				cell.increaseWaitTime(cell.clockRate - 1)
+				cell.DecreaseEnergy(THINKING_COST)
+				cell.IncreaseWaitTime(cell.ClockRate - 1)
 				//TODO: Make sure not to do off-by-one here. Clock 1 should be every 1 turn
 			}
 		}
-		//cellActionExecuterWG.Add(1)
-		//pendingCellActions <- &cellActionBundle
-		//}
 		wg.Done()
-		//nextMomentLock.Unlock()
-	}
-}
-
-func (cell *Cell) increaseWaitTime(amt int) {
-	if !cell.isDead() {
-		cell.nextMomentSelf._timeLeftToWait += amt
 	}
 }
 
 func cellActionExecuter(wg *sync.WaitGroup) {
 	for {
-		//var cellActionBundle = <-pendingCellActions
-		//for _, cellAction := range cellActionBundle.actions
 		var cellAction = <-pendingCellActions
-		//nextMomentLock.Lock()
-		//TODO: Can these things really get away with never locking?
 		switch cellAction.actionType {
 		case cellaction_reproduce:
 			reproduce(cellAction.cell)
 		case cellaction_growcanopy:
-			cellAction.cell.growCanopy()
+			cellAction.cell.GrowCanopy()
 		case cellaction_wait:
-			cellAction.cell.wait()
+			cellAction.cell.Wait()
 		case cellaction_growlegs:
-			cellAction.cell.growLegs()
+			cellAction.cell.GrowLegs()
 		}
 		wg.Done()
 	}
-
-	//nextMomentLock.Unlock()
-}
-
-func (cell *Cell) growLegs() {
-
-	if cell.isDead() {
-		return
-	} else if !cell.isReadyToGrowLegs() {
-		//unable to reproduce, but pays cost for trying. Grim.
-		cell.nextMomentSelf.decreaseEnergy(GROWLEGS_COST)
-		return
-	} else {
-		var nextMomentSelf = cell.nextMomentSelf
-		//TODO: Disabled leg growing. Should re-enable when it's no longer under suspicion
-		nextMomentSelf.legs = false
-		nextMomentSelf.decreaseEnergy(GROWLEGS_COST)
-	}
-}
-
-func moveRandom(cell *Cell) bool {
-	if !cell.wantsToAndCanMove() {
-		return false
-	}
-
-	for _, direction := range getSurroundingDirectionsInRandomOrder() {
-		var xTry = cell.x + direction.x
-		var yTry = cell.y + direction.y
-
-		//TODO: Really need to do some locking here to prevent corruption
-		if !isOccupied(xTry, yTry, nextMoment) {
-			nextMoment.cellsSpatialIndex[xTry][yTry] = cell
-			nextMoment.cellsSpatialIndex[cell.x][cell.y] = nil
-			cell.x = xTry
-			cell.y = yTry
-			cell.decreaseEnergy(MOVE_COST)
-
-			return true
-		}
-	}
-	return false
-}
-
-func (cell *Cell) wait() {
-	if !cell.isDead() {
-		cell.nextMomentSelf._timeLeftToWait = ACTUAL_WAIT_MULTIPLIER * cell.clockRate
-	}
-}
-
-const (
-	LOGTYPE_MAINLOOPSINGLE         = iota
-	LOGTYPE_MAINLOOPSINGLE_PRIMARY = iota
-	LOGTYPE_FINALSTATS             = iota
-	LOGTYPE_HIGHFREQUENCY          = iota
-	LOGTYPE_DEBUGCONCURRENCY       = iota
-	LOGTYPE_PRINTGRIDCELLS         = iota
-	LOGTYPE_PRINTGRID_GRID         = iota
-	LOGTYPE_PRINTGRID_BIGGRID      = iota
-	LOGTYPE_PRINTGRID_SUMMARY      = iota
-	LOGTYPE_OTHER                  = iota
-	LOGTYPE_FAILURES               = iota
-	LOGTYPE_SPECIALEVENT           = iota
-	LOGTYPE_SPECIESREPORT          = iota
-	LOGTYPE_CELLEFFECT             = iota
-)
-
-func log(logType int, message string, params ...interface{}) {
-	if containsInt(LOGTYPES_ENABLED, logType) {
-		fmt.Printf(message, params...)
-	}
-}
-
-func containsInt(ints []int, theInt int) bool {
-	for _, v := range ints {
-		if v == theInt {
-			return true
-		}
-	}
-	return false
-}
-
-type Direction struct {
-	x int
-	y int
-}
-
-var surroundingDirections = []Direction{{-1, -1}, {0, -1}, {1, -1}, {-1, 0}, {1, 0}, {-1, 1}, {0, 1}, {1, 1}}
-
-func getSurroundingDirectionsInRandomOrder() []Direction {
-	var surroundingDirectionsInRandomOrder = []Direction{}
-	for _, i := range rand.Perm(len(surroundingDirections)) {
-		surroundingDirectionsInRandomOrder = append(surroundingDirectionsInRandomOrder, surroundingDirections[i])
-	}
-	return surroundingDirectionsInRandomOrder
 }
 
 func reproduce(cell *Cell) {
-	if cell._energy < REPRODUCE_COST || cell._energy < cell.energySpentOnReproducing {
+	if cell.Energy < REPRODUCE_COST || cell.Energy < cell.EnergySpentOnReproducing {
 		//unable to reproduce, but pays cost for trying. Grim.
-		cell.decreaseEnergy(cell.energySpentOnReproducing)
+		cell.DecreaseEnergy(cell.EnergySpentOnReproducing)
 		return
 	}
 	lockAllYXs("reproduce")
 	//try all spots surrounding the cell
 	//TODO: Why are we not locking here???
-	//lockYRangeInclusive(cell.y-1, cell.y+1, "reproduce")
-	for _, direction := range getSurroundingDirectionsInRandomOrder() {
-		var xTry = cell.x + direction.x
-		var yTry = cell.y + direction.y
+	//lockYRangeInclusive(cell.Y-1, cell.Y+1, "reproduce")
+	for _, direction := range GetSurroundingDirectionsInRandomOrder() {
+		var xTry = cell.X + direction.X
+		var yTry = cell.Y + direction.Y
 		//for relativeX := -1; relativeX < 2; relativeX++ {
 		//	for relativeY := -1; relativeY < 2; relativeY++ {
-		//		var xTry = cell.x + relativeX
-		//		var yTry = cell.y + relativeY
+		//		var xTry = cell.X + relativeX
+		//		var yTry = cell.Y + relativeY
 
-		if !isOccupied(xTry, yTry, nextMoment) {
+		if !NextMoment.IsOccupied(xTry, yTry) {
 
 			var rand0To99 = rand.Intn(100)
-			log(LOGTYPE_CELLEFFECT, "cell %d at %d, %d making a baby\n", cell.id, cell.x, cell.y)
-			var babyCell = cellPool.Borrow()
-			babyCell._energy = cell.energySpentOnReproducing - REPRODUCE_COST
+			Log(LOGTYPE_CELLEFFECT, "cell %d at %d, %d making a baby\n", cell.ID, cell.X, cell.Y)
+			var babyCell = CellPool.Borrow()
+			babyCell.Energy = cell.EnergySpentOnReproducing - REPRODUCE_COST
 			//TODO: This should be a function, probably needs locking if parallelized
-			babyCell.id = IDCounter
-			IDCounter += 1
-			log(LOGTYPE_CELLEFFECT, "baby cell %d born with %f energy\n", babyCell.id, babyCell._energy)
-			babyCell.energyReproduceThreshold = cell.energyReproduceThreshold + float64(rand.Intn(7)-3)
-			babyCell.x = xTry
-			babyCell.y = yTry
-			babyCell.speciesID = cell.speciesID
-			babyCell.speciesColor = cell.speciesColor
+			babyCell.ID = IDCounter
+			IDCounter++
+			Log(LOGTYPE_CELLEFFECT, "baby cell %d born with %f energy\n", babyCell.ID, babyCell.Energy)
+			babyCell.EnergyReproduceThreshold = cell.EnergyReproduceThreshold + float64(rand.Intn(7)-3)
+			babyCell.X = xTry
+			babyCell.Y = yTry
+			babyCell.SpeciesID = cell.SpeciesID
+			babyCell.SpeciesColor = cell.SpeciesColor
 
-			babyCell._timeLeftToWait = 0
+			babyCell.TimeLeftToWait = 0
 			if rand0To99 < 40 {
-				babyCell.clockRate = cell.clockRate + rand.Intn(9) - 4
+				babyCell.ClockRate = cell.ClockRate + rand.Intn(9) - 4
 			} else if rand0To99 < 80 {
-				babyCell.clockRate = cell.clockRate + rand.Intn(3) - 1
+				babyCell.ClockRate = cell.ClockRate + rand.Intn(3) - 1
 			} else {
-				babyCell.clockRate = cell.clockRate
+				babyCell.ClockRate = cell.ClockRate
 			}
 			//TODO: Better way to do this
 
@@ -1026,164 +363,126 @@ func reproduce(cell *Cell) {
 			//var rand0To99_2 = rand.Intn(100)
 			//if rand0To99_2 == 0 {
 			//legless gets legs
-			//	babyCell.growLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST
-			//	babyCell.moveChance = float64(rand.Intn(40))
+			//	babyCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST
+			//	babyCell.MoveChance = float64(rand.Intn(40))
 			//} else if rand0To99_2 == 1 {
 			//legged goes legless
-			//	babyCell.growLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
-			//	babyCell.moveChance = 0.0
+			//	babyCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
+			//	babyCell.MoveChance = 0.0
 			//} else {
 			//mutate like normal
-			//	babyCell.growLegsAt = math.Max(GROWLEGS_COST, float64(cell.growLegsAt+float64(rand.Intn(7)-3)))
-			//	babyCell.moveChance = math.Max(0.0, float64(cell.moveChance+float64(rand.Intn(7)-3)))
+			//	babyCell.GrowLegsAt = math.Max(GROWLEGS_COST, float64(cell.GrowLegsAt+float64(rand.Intn(7)-3)))
+			//	babyCell.MoveChance = math.Max(0.0, float64(cell.MoveChance+float64(rand.Intn(7)-3)))
 			//}
 			//TODO: Just trying to disable this
-			babyCell.growLegsAt = 999
+			babyCell.GrowLegsAt = 999
 
-			babyCell.percentChanceWait = int(math.Max(0.0, float64(cell.percentChanceWait+rand.Intn(7)-3)))
+			babyCell.PercentChanceWait = int(math.Max(0.0, float64(cell.PercentChanceWait+rand.Intn(7)-3)))
 
-			babyCell.age = 0
-			babyCell.canopy = false
-			babyCell.growCanopyAt = cell.growCanopyAt + float64(rand.Intn(7)-3)
+			babyCell.Age = 0
+			babyCell.Canopy = false
+			babyCell.GrowCanopyAt = cell.GrowCanopyAt + float64(rand.Intn(7)-3)
 
-			babyCell._originalEnergyReproduceThreshold = cell._originalEnergyReproduceThreshold
-			babyCell._originalEnergySpentOnReproducing = cell._originalEnergySpentOnReproducing
-			babyCell._originalgrowCanopyAt = cell._originalgrowCanopyAt
-			babyCell._originalPercentChanceWait = cell._originalPercentChanceWait
-			babyCell._originalClockRate = cell._originalClockRate
-			babyCell._originalGrowLegsAt = cell._originalGrowLegsAt
-			babyCell._originalMoveChance = cell._originalMoveChance
+			babyCell.X_originalEnergyReproduceThreshold = cell.X_originalEnergyReproduceThreshold
+			babyCell.X_originalEnergySpentOnReproducing = cell.X_originalEnergySpentOnReproducing
+			babyCell.X_originalGrowCanopyAt = cell.X_originalGrowCanopyAt
+			babyCell.X_originalPercentChanceWait = cell.X_originalPercentChanceWait
+			babyCell.X_originalClockRate = cell.X_originalClockRate
+			babyCell.X_originalGrowLegsAt = cell.X_originalGrowLegsAt
+			babyCell.X_originalMoveChance = cell.X_originalMoveChance
 
-			babyCell.energySpentOnReproducing = math.Min(babyCell.energyReproduceThreshold, cell.energySpentOnReproducing+float64(rand.Intn(7)-3))
+			babyCell.EnergySpentOnReproducing = math.Min(babyCell.EnergyReproduceThreshold, cell.EnergySpentOnReproducing+float64(rand.Intn(7)-3))
 
 			//TODO: WTF this shit is hella bugged in some mysterious way
 			if hasSignificantGeneticDivergence(babyCell) {
 				//TODO: This should probably be a function
-				babyCell.speciesID = speciesIDCounter
-				speciesIDCounter++
-				babyCell.speciesColor = getNextColor()
+				babyCell.SpeciesID = SpeciesIDCounter
+				SpeciesIDCounter++
+				babyCell.SpeciesColor = getNextColor()
 
-				babyCell._originalEnergyReproduceThreshold = babyCell.energyReproduceThreshold
-				babyCell._originalgrowCanopyAt = babyCell.growCanopyAt
-				babyCell._originalEnergySpentOnReproducing = babyCell.energySpentOnReproducing
-				babyCell._originalPercentChanceWait = babyCell.percentChanceWait
-				babyCell._originalClockRate = babyCell.clockRate
-				babyCell._originalGrowLegsAt = babyCell.growLegsAt
-				babyCell._originalMoveChance = babyCell.moveChance
+				babyCell.X_originalEnergyReproduceThreshold = babyCell.EnergyReproduceThreshold
+				babyCell.X_originalGrowCanopyAt = babyCell.GrowCanopyAt
+				babyCell.X_originalEnergySpentOnReproducing = babyCell.EnergySpentOnReproducing
+				babyCell.X_originalPercentChanceWait = babyCell.PercentChanceWait
+				babyCell.X_originalClockRate = babyCell.ClockRate
+				babyCell.X_originalGrowLegsAt = babyCell.GrowLegsAt
+				babyCell.X_originalMoveChance = babyCell.MoveChance
 
-				log(LOGTYPE_SPECIALEVENT, "Cell at %d, %d "+babyCell.speciesColor.startSequence+"x"+babyCell.speciesColor.endSequence+" is the first of a new species!\n", xTry, yTry)
-				log(LOGTYPE_SPECIALEVENT, "orig reprod threshold: %f, new reprod threshold: %f\n", cell._originalEnergyReproduceThreshold, babyCell._originalEnergyReproduceThreshold)
-				log(LOGTYPE_SPECIALEVENT, "orig reprod energy spend: %f, new reprod energy spend: %f\n", cell._originalEnergySpentOnReproducing, babyCell._originalEnergySpentOnReproducing)
-				log(LOGTYPE_SPECIALEVENT, "orig grow canopy threshold: %f, new grow canopy threshold: %f\n", cell._originalgrowCanopyAt, babyCell._originalgrowCanopyAt)
+				Log(LOGTYPE_SPECIALEVENT, "Cell at %d, %d "+babyCell.SpeciesColor.StartSequence+"x"+babyCell.SpeciesColor.EndSequence+" is the first of a new species!\n", xTry, yTry)
+				Log(LOGTYPE_SPECIALEVENT, "orig reprod threshold: %f, new reprod threshold: %f\n", cell.X_originalEnergyReproduceThreshold, babyCell.X_originalEnergyReproduceThreshold)
+				Log(LOGTYPE_SPECIALEVENT, "orig reprod energy spend: %f, new reprod energy spend: %f\n", cell.X_originalEnergySpentOnReproducing, babyCell.X_originalEnergySpentOnReproducing)
+				Log(LOGTYPE_SPECIALEVENT, "orig grow canopy threshold: %f, new grow canopy threshold: %f\n", cell.X_originalGrowCanopyAt, babyCell.X_originalGrowCanopyAt)
 
 			}
-			nextMoment.cells = append(nextMoment.cells, babyCell)
-			nextMoment.cellsSpatialIndex[xTry][yTry] = babyCell
-			cell.decreaseEnergy(cell.energySpentOnReproducing)
+			NextMoment.Cells = append(NextMoment.Cells, babyCell)
+			NextMoment.CellsSpatialIndex[xTry][yTry] = babyCell
+			cell.DecreaseEnergy(cell.EnergySpentOnReproducing)
 			return
 		}
 	}
-	//	unlockYRangeInclusive(cell.y-1, cell.y+1, "reproduce")
+	//	unlockYRangeInclusive(cell.Y-1, cell.Y+1, "reproduce")
 }
 
-var speciesCounter = 0
-
 func hasSignificantGeneticDivergence(cell *Cell) bool {
-	var energyReproduceThresholdDiff = math.Abs(cell._originalEnergyReproduceThreshold - cell.energyReproduceThreshold)
+	var energyReproduceThresholdDiff = math.Abs(cell.X_originalEnergyReproduceThreshold - cell.EnergyReproduceThreshold)
 	//TODO: took canopy out because something is jacked up about it. Need to debug and put back in
-	//var growCanopyAtDiff = 0.0
-	//if cell.growCanopyAt != 0.0 {
-	//	growCanopyAtDiff = math.Abs(cell._originalgrowCanopyAt - cell.growCanopyAt)
+	//var GrowCanopyAtDiff = 0.0
+	//if cell.GrowCanopyAt != 0.0 {
+	//	GrowCanopyAtDiff = math.Abs(cell.X_OriginalGrowCanopyAt - cell.GrowCanopyAt)
 	//}
 
-	//var moveChanceDiff = math.Abs(float64(cell._originalMoveChance) - float64(cell.moveChance))
-	//var growLegsAtDiff = math.Abs(float64(cell._originalGrowLegsAt) - float64(cell.growCanopyAt))
-	var growCanopyAtDiff = math.Abs(float64(cell._originalgrowCanopyAt) - float64(cell.growCanopyAt))
-	var clockRateDiff = math.Abs(float64(cell._originalClockRate) - float64(cell.clockRate))
-	var energySpentOnReproducingDiff = math.Abs(cell._originalEnergySpentOnReproducing - cell.energySpentOnReproducing)
-	var percentChanceWaitDiff = math.Abs(float64(cell._originalPercentChanceWait) - float64(cell.percentChanceWait))
-	var totalDiff = growCanopyAtDiff + clockRateDiff + energyReproduceThresholdDiff + energySpentOnReproducingDiff + percentChanceWaitDiff
+	//var MoveChanceDiff = math.Abs(float64(cell._X_originalMoveChance) - float64(cell.MoveChance))
+	//var GrowLegsAtDiff = math.Abs(float64(cell._X_originalGrowLegsAt) - float64(cell.GrowCanopyAt))
+	var GrowCanopyAtDiff = math.Abs(float64(cell.X_originalGrowCanopyAt) - float64(cell.GrowCanopyAt))
+	var ClockRateDiff = math.Abs(float64(cell.X_originalClockRate) - float64(cell.ClockRate))
+	var EnergySpentOnReproducingDiff = math.Abs(cell.X_originalEnergySpentOnReproducing - cell.EnergySpentOnReproducing)
+	var PercentChanceWaitDiff = math.Abs(float64(cell.X_originalPercentChanceWait) - float64(cell.PercentChanceWait))
+	var totalDiff = GrowCanopyAtDiff + ClockRateDiff + energyReproduceThresholdDiff + EnergySpentOnReproducingDiff + PercentChanceWaitDiff
 	//if totalDiff > SPECIES_DIVERGENCE_THRESHOLD {
-	//	log("original energy threshold: %f\n", cell._originalEnergyReproduceThreshold)
-	//	fmt.Printf("current energy threshold: %f\n", cell.energyReproduceThreshold)
+	//	Log("X_original energy threshold: %f\n", cell._X_originalEnergyReproduceThreshold)
+	//	fmt.Printf("current energy threshold: %f\n", cell.EnergyReproduceThreshold)
 	//	fmt.Printf("totalDiff: %f\n", totalDiff)
-	//	fmt.Printf("energy spent reprod diff: %f\n", energySpentOnReproducingDiff)
-	//	fmt.Printf("grew canopy at diff: %f\n", growCanopyAtDiff)
+	//	fmt.Printf("energy spent reprod diff: %f\n", EnergySpentOnReproducingDiff)
+	//	fmt.Printf("grew canopy at diff: %f\n", GrowCanopyAtDiff)
 	//	fmt.Printf("energy threshold diff: %f\n", energyReproduceThresholdDiff)
 	//}
 	return totalDiff > SPECIES_DIVERGENCE_THRESHOLD
 }
 
-func (cell *Cell) growCanopy() {
-	if cell.isDead() {
-		return
-	} else if cell._energy < GROWCANOPY_COST {
-		//unable to reproduce, but pays cost for trying. Grim.
-		cell.decreaseEnergy(GROWCANOPY_COST)
-		return
-		//TODO: Not sure why I need to check this condition twice, but it seems to prevent a nil reference thing
-	} else if !cell.isDead() {
-		cell.nextMomentSelf.canopy = true
-		log(LOGTYPE_CELLEFFECT, "Cell %d grew canopy\n", cell.id)
-		cell.nextMomentSelf.decreaseEnergy(GROWCANOPY_COST)
-	}
-}
-
 func maintainAllCells() {
-	log(LOGTYPE_MAINLOOPSINGLE, "Starting maintain\n")
-	//lockAllYs("maintain cells")
-	for _, cell := range currentMoment.cells {
-		//lockYXRangeInclusive(cell.x, cell.y, cell.x, cell.y, "maintainer")
+	Log(LOGTYPE_MAINLOOPSINGLE, "Starting maintain\n")
+	for _, cell := range CurrentMoment.Cells {
 		cell.Maintain()
-		//	unlockYXRangeInclusive(cell.x, cell.y, cell.x, cell.y, "maintainer")
 	}
-	//unlockAllYXs("maintain cells")
-	log(LOGTYPE_MAINLOOPSINGLE, "Ending maintain\n")
-}
-
-func reapAllDeadCells() {
-	log(LOGTYPE_MAINLOOPSINGLE, "Starting reap\n")
-	//lockAllYs("reaper")
-	var cellsToDelete = []*Cell{}
-	for ci := range nextMoment.cells {
-		var cell = nextMoment.cells[ci]
-		if cell._energy <= 0.0 {
-			cellsToDelete = append(cellsToDelete, cell)
-		}
-	}
-	if len(cellsToDelete) > 0 {
-		nextMoment.RemoveCells(cellsToDelete)
-	}
-	//unlockAllYXs("reaper")
-	log(LOGTYPE_MAINLOOPSINGLE, "Ending reap\n")
+	Log(LOGTYPE_MAINLOOPSINGLE, "Ending maintain\n")
 }
 
 func lockAllYXs(who string) {
-	//lockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
+	lockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
 }
 
 func lockYXRangeInclusive(startY int, endY int, startX int, endX int, who string) {
-	log(LOGTYPE_DEBUGCONCURRENCY, "%s Trying to grab bulk lock\n", who)
+	Log(LOGTYPE_DEBUGCONCURRENCY, "%s Trying to grab bulk lock\n", who)
 	bulkGrabLock.Lock()
-	log(LOGTYPE_DEBUGCONCURRENCY, "%s Grabbed successfully\n", who)
+	Log(LOGTYPE_DEBUGCONCURRENCY, "%s Grabbed successfully\n", who)
 	for y := startY; y < endY+1; y++ {
 		for x := startX; x < endX+1; x++ {
-			if !isOutOfBounds(x, y, nextMoment) {
-				log(LOGTYPE_DEBUGCONCURRENCY, "%s is going to lock %d, %d\n", who, x, y)
-				//nextMomentYXLocks[y][x].Lock()
+			if !NextMoment.IsOutOfBounds(x, y) {
+				Log(LOGTYPE_DEBUGCONCURRENCY, "%s is going to lock %d, %d\n", who, x, y)
+				//NextMomentYXLocks[y][x].Lock()
 			}
 		}
 	}
-	log(LOGTYPE_DEBUGCONCURRENCY, "%s trying to release bulk lock\n", who)
+	Log(LOGTYPE_DEBUGCONCURRENCY, "%s trying to release bulk lock\n", who)
 	bulkGrabLock.Unlock()
 }
 
 func unlockYXRangeInclusive(startY int, endY int, startX int, endX int, who string) {
 	for y := startY; y < endY+1; y++ {
 		for x := startX; x < endX+1; x++ {
-			if !isOutOfBounds(x, y, nextMoment) {
-				log(LOGTYPE_DEBUGCONCURRENCY, "%s is going to unlock %d, %d\n", who, x, y)
-				//	nextMomentYXLocks[y][x].Unlock()
+			if !NextMoment.IsOutOfBounds(x, y) {
+				Log(LOGTYPE_DEBUGCONCURRENCY, "%s is going to unlock %d, %d\n", who, x, y)
+				//	NextMomentYXLocks[y][x].Unlock()
 			}
 		}
 	}
@@ -1193,79 +492,68 @@ func unlockAllYXs(who string) {
 	unlockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
 }
 
-var speciesIDCounter = 0
+var SpeciesIDCounter = 0
 var IDCounter = 0
 
 func spontaneouslyGenerateCell() {
-	//TODO: Shouldn't this be next moment?
 	//TODO: Probably need to lock some stuff here
 	//TODO: Cell pool should probaby zero out cell values before handing it off
-	var newCell = cellPool.Borrow()
+	var newCell = CellPool.Borrow()
 	var foundSpotYet = false
 	var tries = 0
 	var giveUp = false
-	//TODO: Add a timeout to this
 	for !foundSpotYet && !giveUp {
 
 		var xTry = rand.Intn(GRID_WIDTH)
 		var yTry = rand.Intn(GRID_HEIGHT)
-		//nextMomentYXLocks[xTry][yTry].Lock()
-		if !isOccupied(xTry, yTry, nextMoment) {
+		if !NextMoment.IsOccupied(xTry, yTry) {
 			foundSpotYet = true
+			newCell.X = xTry
+			newCell.Y = yTry
+			newCell.SpeciesID = SpeciesIDCounter
+			newCell.ID = IDCounter
+			IDCounter++
+			SpeciesIDCounter++
+			newCell.SpeciesColor = getNextColor()
+			newCell.Energy = float64(rand.Intn(100))
+			newCell.TimeLeftToWait = 0
 
-			//TODO: This aint gonna work for some reason
-			//	nextMomentLock.Lock()
-			newCell.x = xTry
-			newCell.y = yTry
-			newCell.speciesID = speciesIDCounter
-			newCell.id = IDCounter
-			IDCounter += 1
-			speciesIDCounter += 1
-			newCell.speciesColor = getNextColor()
-			newCell._energy = float64(rand.Intn(100))
-			newCell._timeLeftToWait = 0
+			newCell.ClockRate = rand.Intn(50) + 1
+			newCell.PercentChanceWait = rand.Intn(40)
 
-			newCell.clockRate = rand.Intn(50) + 1
-			newCell.percentChanceWait = rand.Intn(40)
-
-			newCell.energySpentOnReproducing = REPRODUCE_COST + float64(rand.Intn(20))
-			newCell.energyReproduceThreshold = newCell.energySpentOnReproducing + float64(rand.Intn(120))
-			newCell.canopy = false
-			newCell.growCanopyAt = float64(rand.Intn(120)) + GROWCANOPY_COST
+			newCell.EnergySpentOnReproducing = REPRODUCE_COST + float64(rand.Intn(20))
+			newCell.EnergyReproduceThreshold = newCell.EnergySpentOnReproducing + float64(rand.Intn(120))
+			newCell.Canopy = false
+			newCell.GrowCanopyAt = float64(rand.Intn(120)) + GROWCANOPY_COST
 			//if rand.Intn(100) < 50 {
-			//	newCell.growLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST
-			//	newCell.moveChance = float64(rand.Intn(40))
+			//	newCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST
+			//	newCell.MoveChance = float64(rand.Intn(40))
 			//} else {
-			//		newCell.growLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
-			//		newCell.moveChance = 0.0
+			//		newCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
+			//		newCell.MoveChance = 0.0
 			//	}
-			newCell.growLegsAt = 9999
-			newCell.legs = false
+			newCell.GrowLegsAt = 9999
+			newCell.Legs = false
 
-			newCell._originalMoveChance = newCell.moveChance
-			newCell._originalGrowLegsAt = newCell.growLegsAt
-			newCell._originalPercentChanceWait = newCell.percentChanceWait
-			newCell._originalEnergyReproduceThreshold = newCell.energyReproduceThreshold
-			newCell._originalEnergySpentOnReproducing = newCell.energySpentOnReproducing
-			newCell._originalClockRate = newCell.clockRate
-			newCell._originalgrowCanopyAt = newCell.growCanopyAt
+			newCell.X_originalMoveChance = newCell.MoveChance
+			newCell.X_originalGrowLegsAt = newCell.GrowLegsAt
+			newCell.X_originalPercentChanceWait = newCell.PercentChanceWait
+			newCell.X_originalEnergyReproduceThreshold = newCell.EnergyReproduceThreshold
+			newCell.X_originalEnergySpentOnReproducing = newCell.EnergySpentOnReproducing
+			newCell.X_originalClockRate = newCell.ClockRate
+			newCell.X_originalGrowCanopyAt = newCell.GrowCanopyAt
 
-			nextMoment.cells = append(nextMoment.cells, newCell)
-			log(LOGTYPE_CELLEFFECT, "Added cell %d to next moment\n", newCell.id)
-			nextMoment.cellsSpatialIndex[xTry][yTry] = newCell
+			NextMoment.Cells = append(NextMoment.Cells, newCell)
+			Log(LOGTYPE_CELLEFFECT, "Added cell %d to next moment\n", newCell.ID)
+			NextMoment.CellsSpatialIndex[xTry][yTry] = newCell
 		}
-		//	nextMomentYXLocks[yTry][xTry].Unlock()
-		tries += 1
+		//	NextMomentYXLocks[yTry][xTry].Unlock()
+		tries++
 		if tries > MAX_TRIES_TO_FIND_EMPTY_GRID_COORD {
-			log(LOGTYPE_FAILURES, "Gave up on placing tell. Too many cells occupied.")
+			Log(LOGTYPE_FAILURES, "Gave up on placing tell. Too many cells occupied.")
 			break
 		}
 	}
-}
-
-type TextColorBookend struct {
-	startSequence string
-	endSequence   string
 }
 
 var colorCounter = 100
@@ -1282,10 +570,10 @@ func getAllTextColorBookends() []*TextColorBookend {
 				}
 				var textColorStart = fmt.Sprintf("\033[%d;%d;%dm", i, j, k)
 				var textColorEnd = "\033[m"
-				//log(LOGTYPE_FINALSTATS, textColorStart+" BLOOP "+textColorEnd)
+				//Log(LOGTYPE_FINALSTATS, textColorStart+" BLOOP "+textColorEnd)
 				var textColorBookend = &TextColorBookend{textColorStart, textColorEnd}
 				textColorBookendsTemp = append(textColorBookendsTemp, textColorBookend)
-				//log(LOGTYPE_FINALSTATS, "%d;%d;%d: \033[%d;%d;%dm Hello, World! \033[m \n", i, j, k, i, j, k)
+				//Log(LOGTYPE_FINALSTATS, "%d;%d;%d: \033[%d;%d;%dm Hello, World! \033[m \n", i, j, k, i, j, k)
 			}
 		}
 	}
@@ -1294,20 +582,13 @@ func getAllTextColorBookends() []*TextColorBookend {
 
 func getNextColor() *TextColorBookend {
 	//TODO this is a hack
-	speciesCounter++
+	SpeciesCounter++
 	var nextColor = textColorBookends[colorCounter]
 	colorCounter++
 	if colorCounter >= len(textColorBookends) {
 		colorCounter = 0
 	}
 	return nextColor
-}
-
-func printAllColors() {
-	for ci := range textColorBookends {
-		fmt.Println(textColorBookends[ci].startSequence + "Hello, World!" + textColorBookends[ci].endSequence + "\n")
-		fmt.Printf(textColorBookends[ci].startSequence + "Hello, World!" + textColorBookends[ci].endSequence + "\n")
-	}
 }
 
 //from https://gist.github.com/DavidVaini/10308388
@@ -1329,29 +610,29 @@ const SHINE_FREQUENCY = 1
 
 func shineOnAllCells() {
 	if momentNum%SHINE_FREQUENCY == 0 {
-		log(LOGTYPE_MAINLOOPSINGLE, "Starting shine\n")
+		Log(LOGTYPE_MAINLOOPSINGLE, "Starting shine\n")
 		//TODO: This could stand to be refactored a bit
-		//TODO: Changed for nextMoment to current moment, but might be wrong...
+		//TODO: Changed for NextMoment to current moment, but might be wrong...
 
 		var isDayTime = momentNum%100 <= 50
 		var wg = &sync.WaitGroup{}
-		for yi := range currentMoment.cellsSpatialIndex {
+		for yi := range CurrentMoment.CellsSpatialIndex {
 			//wg.Add(1)
 			shineThisRow(yi, isDayTime, wg)
 
-			//log(LOGTYPE_HIGHFREQUENCY, "Shiner touching on %d, %d \n", xi, yi)
+			//Log(LOGTYPE_HIGHFREQUENCY, "Shiner touching on %d, %d \n", xi, yi)
 			//unlockYXRangeInclusive(yi-1, yi+1, xi-1, xi+1, "shiner")
 			//TODO: May have placed lock/unlocks here incorrectly
 		}
-		log(LOGTYPE_MAINLOOPSINGLE, "Ending shine\n")
+		Log(LOGTYPE_MAINLOOPSINGLE, "Ending shine\n")
 		//wg.Wait()
 	}
 
 }
 
 func shineThisRow(yi int, isDayTime bool, wg *sync.WaitGroup) {
-	for xi := range currentMoment.cellsSpatialIndex[yi] {
-		//var cell = currentMoment.cellsSpatialIndex[yi][xi]
+	for xi := range CurrentMoment.CellsSpatialIndex[yi] {
+		//var cell = CurrentMoment.CellsSpatialIndex[yi][xi]
 		//if cell == nil {
 		//	continue
 		//}
@@ -1359,14 +640,14 @@ func shineThisRow(yi int, isDayTime bool, wg *sync.WaitGroup) {
 		//fmt.Printf("Proximity to middle: %d\n", int(YProximityToMiddleAsPercent(yi)*100))
 		if isDayTime { //int(YProximityToMiddleAsPercent(yi)*100)
 
-			//var shineAmountForThisSquare = SHINE_ENERGY_AMOUNT //* (float64(xi) / float64(GRID_HEIGHT)) //  GRADIENT
-			var shineAmountForThisSquare = SHINE_ENERGY_AMOUNT * SHINE_FREQUENCY * (float64(xi) / GRID_WIDTH) //* float64(float64(yi)/float64(GRID_HEIGHT))
+			//var shineAmountForThisSquare = SHINEEnergy_AMOUNT //* (float64(xi) / float64(GRID_HEIGHT)) //  GRADIENT
+			var shineAmountForThisSquare = SHINEEnergy_AMOUNT * SHINE_FREQUENCY * (float64(xi) / GRID_WIDTH) //* float64(float64(yi)/float64(GRID_HEIGHT))
 			//fmt.Printf("shine amount at %d: %f", yi, shineAmountForThisSquare)
 			//var shineAmountForThisSquare = 0.0
 			//if xi%10 == 0 || (xi+1)%10 == 0 || (yi%10 == 0) || ((yi+1)%10) == 0 {
 			//	shineAmountForThisSquare = 0.0
 			//} else {
-			//	shineAmountForThisSquare = SHINE_ENERGY_AMOUNT
+			//	shineAmountForThisSquare = SHINEEnergy_AMOUNT
 			//}
 			newShineMethod(xi, yi, shineAmountForThisSquare)
 			//oldShineMethod(cell, shineAmountForThisSquare)
@@ -1377,30 +658,15 @@ func shineThisRow(yi int, isDayTime bool, wg *sync.WaitGroup) {
 	//wg.Done()
 }
 
-func oldShineMethod(cell *Cell, shineAmountForThisSquare float64) {
-	var surroundingCells = getSurroundingCells(cell.x, cell.y, currentMoment)
-	var surroundingCellsWithCanopy = make([]*Cell, 0, 9)
-	for _, surroundingCell := range surroundingCells {
-		if surroundingCell.canopy == true {
-			surroundingCellsWithCanopy = append(surroundingCellsWithCanopy, surroundingCell)
-		}
-	}
-	var surroundingCellsWithCanopyAndMe = append(surroundingCellsWithCanopy, cell)
-	var energyToEachCell = shineAmountForThisSquare / float64(len(surroundingCellsWithCanopyAndMe))
-	for _, cellToReceiveEnergy := range surroundingCellsWithCanopyAndMe {
-		cellToReceiveEnergy.increaseEnergy(energyToEachCell)
-	}
-}
-
 func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 	//TODO: Next up, recycle these slices?
 	//TODO: Just making the array is faster than using pool. Surprising
 	var surroundingCellsWithCanopiesAndMe = &[SURROUNDINGS_SIZE]*Cell{} //surroundingsPool.Borrow()
 	var numSurrounders = 0
-	var cell = currentMoment.cellsSpatialIndex[y][x]
+	var cell = CurrentMoment.CellsSpatialIndex[y][x]
 	if cell != nil {
 		surroundingCellsWithCanopiesAndMe[0] = cell
-		numSurrounders += 1
+		numSurrounders++
 	}
 	//lockYXRangeInclusive(y-1, y+1, x-1, x+1, "shiner")
 	for relativeX := -1; relativeX < 2; relativeX++ {
@@ -1410,31 +676,20 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 			if relativeX == 0 && relativeY == 0 {
 				continue
 			}
-			if !isOutOfBounds(xTry, yTry, currentMoment) && isOccupied(xTry, yTry, currentMoment) && currentMoment.cellsSpatialIndex[xTry][yTry].canopy == true {
-				var surroundingCell = currentMoment.cellsSpatialIndex[xTry][yTry]
+			if !CurrentMoment.IsOutOfBounds(xTry, yTry) && CurrentMoment.IsOccupied(xTry, yTry) && CurrentMoment.CellsSpatialIndex[xTry][yTry].Canopy == true {
+				var surroundingCell = CurrentMoment.CellsSpatialIndex[xTry][yTry]
 				surroundingCellsWithCanopiesAndMe[numSurrounders] = surroundingCell
-				numSurrounders += 1
+				numSurrounders++
 			}
 		}
 	}
 	//unlockYXRangeInclusive(y-1, y+1, x-1, x+1, "shiner")
 	var energyToEachCell = shineAmountForThisSquare / float64(numSurrounders)
 	for i := 0; i < numSurrounders; i++ {
-		surroundingCellsWithCanopiesAndMe[i].increaseEnergy(energyToEachCell)
+		surroundingCellsWithCanopiesAndMe[i].IncreaseEnergy(energyToEachCell)
 	}
 
 	//surroundingsPool.Return(surroundingCellsWithCanopiesAndMe)
-}
-
-func YProximityToMiddleAsPercent(y int) float64 {
-	//fmt.Printf("supposed y: %d", y)
-	var middle = GRID_WIDTH / 2.0
-	//fmt.Printf("middle: %f", middle)
-	var proximityToMiddle = math.Abs(float64(y) - middle)
-	//	fmt.Printf("proximityToMiddle: %f\n", proximityToMiddle)
-	var proximityToMiddleAsPercent = ((middle - proximityToMiddle) / middle)
-	//fmt.Printf("proximityToMiddleAsPercent: %f\n", proximityToMiddleAsPercent)
-	return proximityToMiddleAsPercent
 }
 
 func getSurroundingCells(x int, y int, moment *Moment) []*Cell {
@@ -1444,32 +699,12 @@ func getSurroundingCells(x int, y int, moment *Moment) []*Cell {
 		for relativeY := -1; relativeY < 2; relativeY++ {
 			var xTry = x + relativeX
 			var yTry = y + relativeY
-			//Inlined from !outofBounds and isOccupied
-			if !(xTry < 0 || xTry > GRID_WIDTH-1 || yTry < 0 || yTry > GRID_HEIGHT-1) && moment.cellsSpatialIndex[x][y] != nil {
-				var cell = moment.cellsSpatialIndex[xTry][yTry]
+			//Inlined from !outofBounds and IsOccupied
+			if !(xTry < 0 || xTry > GRID_WIDTH-1 || yTry < 0 || yTry > GRID_HEIGHT-1) && moment.CellsSpatialIndex[x][y] != nil {
+				var cell = moment.CellsSpatialIndex[xTry][yTry]
 				surroundingCells = append(surroundingCells, cell)
 			}
 		}
 	}
 	return surroundingCells
-}
-
-func isOccupied(x int, y int, moment *Moment) bool {
-	if isOutOfBounds(x, y, moment) {
-		return true
-	} else {
-		return moment.cellsSpatialIndex[x][y] != nil
-	}
-}
-
-func isOutOfBounds(x int, y int, moment *Moment) bool {
-	return x < 0 || x > GRID_WIDTH-1 || y < 0 || y > GRID_HEIGHT-1
-}
-
-func isXOutOfBounds(x int, moment *Moment) bool {
-	return x < 0 || x > GRID_WIDTH-1
-}
-
-func isYOutOfBounds(y int, moment *Moment) bool {
-	return y < 0 || y > GRID_HEIGHT-1
 }
