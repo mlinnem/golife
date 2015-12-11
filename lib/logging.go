@@ -24,6 +24,32 @@ func containsInt(ints []int, theInt int) bool {
 	return false
 }
 
+func hasSignificantGeneticDivergence(cell *Cell) bool {
+	var energyReproduceThresholdDiff = math.Abs(cell.X_originalEnergyReproduceThreshold - cell.EnergyReproduceThreshold)
+	//TODO: took canopy out because something is jacked up about it. Need to debug and put back in
+	//var GrowCanopyAtDiff = 0.0
+	//if cell.GrowCanopyAt != 0.0 {
+	//	GrowCanopyAtDiff = math.Abs(cell.X_OriginalGrowCanopyAt - cell.GrowCanopyAt)
+	//}
+
+	//var MoveChanceDiff = math.Abs(float64(cell._X_originalMoveChance) - float64(cell.MoveChance))
+	//var GrowLegsAtDiff = math.Abs(float64(cell._X_originalGrowLegsAt) - float64(cell.GrowCanopyAt))
+	var GrowCanopyAtDiff = math.Abs(float64(cell.X_originalGrowCanopyAt) - float64(cell.GrowCanopyAt))
+	var ClockRateDiff = math.Abs(float64(cell.X_originalClockRate) - float64(cell.ClockRate))
+	var EnergySpentOnReproducingDiff = math.Abs(cell.X_originalEnergySpentOnReproducing - cell.EnergySpentOnReproducing)
+	var PercentChanceWaitDiff = math.Abs(float64(cell.X_originalPercentChanceWait) - float64(cell.PercentChanceWait))
+	var totalDiff = GrowCanopyAtDiff + ClockRateDiff + energyReproduceThresholdDiff + EnergySpentOnReproducingDiff + PercentChanceWaitDiff
+	//if totalDiff > SPECIES_DIVERGENCE_THRESHOLD {
+	//	Log("X_original energy threshold: %f\n", cell._X_originalEnergyReproduceThreshold)
+	//	fmt.Printf("current energy threshold: %f\n", cell.EnergyReproduceThreshold)
+	//	fmt.Printf("totalDiff: %f\n", totalDiff)
+	//	fmt.Printf("energy spent reprod diff: %f\n", EnergySpentOnReproducingDiff)
+	//	fmt.Printf("grew canopy at diff: %f\n", GrowCanopyAtDiff)
+	//	fmt.Printf("energy threshold diff: %f\n", energyReproduceThresholdDiff)
+	//}
+	return totalDiff > SPECIES_DIVERGENCE_THRESHOLD
+}
+
 func printCell(cell *Cell) {
 	if cell != nil {
 		var colorStart = cell.SpeciesColor.StartSequence

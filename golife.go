@@ -11,21 +11,6 @@ import (
 	. "github.com/mlinnem/golife/main/lib"
 )
 
-const SURROUNDINGS_SIZE = 9
-
-func newSurroundings() *[SURROUNDINGS_SIZE]*Cell {
-	return &[SURROUNDINGS_SIZE]*Cell{}
-}
-
-type CellAction struct {
-	cell       *Cell
-	actionType int
-}
-
-type NonCellAction struct {
-	actionType int
-}
-
 var bulkGrabLock *sync.Mutex
 
 var cellActionExecuterWG sync.WaitGroup
@@ -41,13 +26,6 @@ var cellActionDeciderWG sync.WaitGroup
 var nonCellActionExecuterWG sync.WaitGroup
 
 var waitForCleaning sync.WaitGroup
-
-func createThisManyCells(startHere int, endBeforeHere int, wg *sync.WaitGroup) {
-	defer wg.Done()
-	for i := startHere; i < endBeforeHere; i++ {
-		CellPool.Borrow()
-	}
-}
 
 var momentNum = 0
 
@@ -200,6 +178,13 @@ func main() {
 	Log(LOGTYPE_FINALSTATS, "Time of entire run took %f\n", durall)
 }
 
+//CELL-ACTION DECIDER
+
+type CellAction struct {
+	cell       *Cell
+	actionType int
+}
+
 const (
 	cellaction_reproduce  = iota
 	cellaction_growcanopy = iota
@@ -207,62 +192,6 @@ const (
 	cellaction_growlegs   = iota
 	cellaction_moverandom = iota
 )
-
-const (
-	noncellaction_spontaneouslyPlaceCell = iota
-	noncellaction_shineOnAllCells        = iota
-	noncellaction_grimReaper             = iota
-	noncellaction_cellMaintenance        = iota
-)
-
-func generateInitialNonCellActions(wg *sync.WaitGroup) {
-	for i := 0; i < INITIAL_CELL_COUNT; i++ {
-		//TODO: is this efficient? Maybe get rid of struct and use raw consts
-		wg.Add(1)
-		queuedNonCellActions = append(queuedNonCellActions, &NonCellAction{noncellaction_spontaneouslyPlaceCell})
-	}
-}
-
-func generateSunshineAction(wg *sync.WaitGroup) {
-	//TODO for now this action is atom. Could break it up later.
-	queuedNonCellActions = append(queuedNonCellActions, &NonCellAction{noncellaction_shineOnAllCells})
-	wg.Add(1)
-}
-
-func generateGrimReaperAction(wg *sync.WaitGroup) {
-	queuedNonCellActions = append(queuedNonCellActions, &NonCellAction{noncellaction_grimReaper})
-	wg.Add(1)
-}
-
-func generateCellMaintenanceAction(wg *sync.WaitGroup) {
-	queuedNonCellActions = append(queuedNonCellActions, &NonCellAction{noncellaction_cellMaintenance})
-	wg.Add(1)
-}
-
-func nonCellActionExecuter(wg *sync.WaitGroup) {
-	for {
-		var nonCellAction = <-pendingNonCellActions
-		//NextMomentLock.Lock()
-		//route it to function depending on its type
-		switch nonCellAction.actionType {
-		case noncellaction_spontaneouslyPlaceCell:
-			spontaneouslyGenerateCell()
-		case noncellaction_shineOnAllCells:
-			shineOnAllCells()
-		case noncellaction_grimReaper:
-			//TODO: Removing reapar call as a test, doing it implicitly now when next turn starts
-			//reapAllDeadCells()
-		case noncellaction_cellMaintenance:
-			//TODO
-			maintainAllCells()
-		}
-
-		wg.Done()
-		//NextMomentLock.Unlock()
-	}
-}
-
-var GUESS_AT_PERCENT_CELLS_ACTING = 0.1
 
 func cellActionDecider(wg *sync.WaitGroup) {
 	for {
@@ -298,6 +227,8 @@ func cellActionDecider(wg *sync.WaitGroup) {
 	}
 }
 
+//CELL-ACTION EXECUTER
+
 func cellActionExecuter(wg *sync.WaitGroup) {
 	for {
 		var cellAction = <-pendingCellActions
@@ -315,6 +246,56 @@ func cellActionExecuter(wg *sync.WaitGroup) {
 	}
 }
 
+//NON-CELL-ACTIONS
+
+type NonCellAction struct {
+	actionType int
+}
+
+const (
+	noncellaction_spontaneouslyPlaceCell = iota
+	noncellaction_shineOnAllCells        = iota
+	noncellaction_cellMaintenance        = iota
+)
+
+func generateInitialNonCellActions(wg *sync.WaitGroup) {
+	for i := 0; i < INITIAL_CELL_COUNT; i++ {
+		//TODO: is this efficient? Maybe get rid of struct and use raw consts
+		wg.Add(1)
+		queuedNonCellActions = append(queuedNonCellActions, &NonCellAction{noncellaction_spontaneouslyPlaceCell})
+	}
+}
+
+func generateSunshineAction(wg *sync.WaitGroup) {
+	//TODO for now this action is atom. Could break it up later.
+	queuedNonCellActions = append(queuedNonCellActions, &NonCellAction{noncellaction_shineOnAllCells})
+	wg.Add(1)
+}
+
+func generateCellMaintenanceAction(wg *sync.WaitGroup) {
+	queuedNonCellActions = append(queuedNonCellActions, &NonCellAction{noncellaction_cellMaintenance})
+	wg.Add(1)
+}
+
+func nonCellActionExecuter(wg *sync.WaitGroup) {
+	for {
+		var nonCellAction = <-pendingNonCellActions
+		//route it to function depending on its type
+		switch nonCellAction.actionType {
+		case noncellaction_spontaneouslyPlaceCell:
+			spontaneouslyGenerateCell()
+		case noncellaction_shineOnAllCells:
+			shineOnAllCells()
+		case noncellaction_cellMaintenance:
+			//TODO
+			maintainAllCells()
+		}
+
+		wg.Done()
+	}
+}
+
+//TODO: Should be in cell.go?
 func reproduce(cell *Cell) {
 	if cell.Energy < REPRODUCE_COST || cell.Energy < cell.EnergySpentOnReproducing {
 		//unable to reproduce, but pays cost for trying. Grim.
@@ -323,16 +304,9 @@ func reproduce(cell *Cell) {
 	}
 	lockAllYXs("reproduce")
 	//try all spots surrounding the cell
-	//TODO: Why are we not locking here???
-	//lockYRangeInclusive(cell.Y-1, cell.Y+1, "reproduce")
 	for _, direction := range GetSurroundingDirectionsInRandomOrder() {
 		var xTry = cell.X + direction.X
 		var yTry = cell.Y + direction.Y
-		//for relativeX := -1; relativeX < 2; relativeX++ {
-		//	for relativeY := -1; relativeY < 2; relativeY++ {
-		//		var xTry = cell.X + relativeX
-		//		var yTry = cell.Y + relativeY
-
 		if !NextMoment.IsOccupied(xTry, yTry) {
 
 			var rand0To99 = rand.Intn(100)
@@ -547,7 +521,6 @@ func spontaneouslyGenerateCell() {
 			Log(LOGTYPE_CELLEFFECT, "Added cell %d to next moment\n", newCell.ID)
 			NextMoment.CellsSpatialIndex[xTry][yTry] = newCell
 		}
-		//	NextMomentYXLocks[yTry][xTry].Unlock()
 		tries++
 		if tries > MAX_TRIES_TO_FIND_EMPTY_GRID_COORD {
 			Log(LOGTYPE_FAILURES, "Gave up on placing tell. Too many cells occupied.")
@@ -658,8 +631,9 @@ func shineThisRow(yi int, isDayTime bool, wg *sync.WaitGroup) {
 	//wg.Done()
 }
 
+const SURROUNDINGS_SIZE = 9
+
 func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
-	//TODO: Next up, recycle these slices?
 	//TODO: Just making the array is faster than using pool. Surprising
 	var surroundingCellsWithCanopiesAndMe = &[SURROUNDINGS_SIZE]*Cell{} //surroundingsPool.Borrow()
 	var numSurrounders = 0
@@ -668,7 +642,6 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 		surroundingCellsWithCanopiesAndMe[0] = cell
 		numSurrounders++
 	}
-	//lockYXRangeInclusive(y-1, y+1, x-1, x+1, "shiner")
 	for relativeX := -1; relativeX < 2; relativeX++ {
 		for relativeY := -1; relativeY < 2; relativeY++ {
 			var xTry = x + relativeX
@@ -683,28 +656,8 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 			}
 		}
 	}
-	//unlockYXRangeInclusive(y-1, y+1, x-1, x+1, "shiner")
 	var energyToEachCell = shineAmountForThisSquare / float64(numSurrounders)
 	for i := 0; i < numSurrounders; i++ {
 		surroundingCellsWithCanopiesAndMe[i].IncreaseEnergy(energyToEachCell)
 	}
-
-	//surroundingsPool.Return(surroundingCellsWithCanopiesAndMe)
-}
-
-func getSurroundingCells(x int, y int, moment *Moment) []*Cell {
-	var surroundingCells []*Cell
-	surroundingCells = make([]*Cell, 0, 9)
-	for relativeX := -1; relativeX < 2; relativeX++ {
-		for relativeY := -1; relativeY < 2; relativeY++ {
-			var xTry = x + relativeX
-			var yTry = y + relativeY
-			//Inlined from !outofBounds and IsOccupied
-			if !(xTry < 0 || xTry > GRID_WIDTH-1 || yTry < 0 || yTry > GRID_HEIGHT-1) && moment.CellsSpatialIndex[x][y] != nil {
-				var cell = moment.CellsSpatialIndex[xTry][yTry]
-				surroundingCells = append(surroundingCells, cell)
-			}
-		}
-	}
-	return surroundingCells
 }

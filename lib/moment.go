@@ -68,3 +68,20 @@ func (moment *Moment) isXOutOfBounds(x int) bool {
 func (moment *Moment) isYOutOfBounds(y int) bool {
 	return y < 0 || y > GRID_HEIGHT-1
 }
+
+func (moment *Moment) getSurroundingCells(x int, y int) []*Cell {
+	var surroundingCells []*Cell
+	surroundingCells = make([]*Cell, 0, 9)
+	for relativeX := -1; relativeX < 2; relativeX++ {
+		for relativeY := -1; relativeY < 2; relativeY++ {
+			var xTry = x + relativeX
+			var yTry = y + relativeY
+			//Inlined from !outofBounds and IsOccupied
+			if !(xTry < 0 || xTry > GRID_WIDTH-1 || yTry < 0 || yTry > GRID_HEIGHT-1) && moment.CellsSpatialIndex[x][y] != nil {
+				var cell = moment.CellsSpatialIndex[xTry][yTry]
+				surroundingCells = append(surroundingCells, cell)
+			}
+		}
+	}
+	return surroundingCells
+}
