@@ -180,6 +180,10 @@ func (cell *Cell) IsReadyToGrowCanopy() bool {
 }
 
 func (cell *Cell) WantsToAndCanMove() bool {
+	//TODO: Do we need to be doing this on each pre-check?
+	if cell.isDead() {
+		return false
+	}
 	var isThereASpotToMove = false
 	for relativeX := -1; relativeX < 2; relativeX++ {
 		for relativeY := -1; relativeY < 2; relativeY++ {
@@ -216,7 +220,7 @@ func (cell *Cell) GrowCanopy() {
 		//unable to reproduce, but pays cost for trying. Grim.
 		cell.DecreaseEnergy(GROWCANOPY_COST)
 		return
-		//TODO: Not sure why I need to check this condition twice, but it seems to prevent a nil reference thing
+		//TODO: Not sure why I need to check this condition twice, but it seems to prevent a nil reference thing. Or does it?
 	} else if !cell.isDead() {
 		cell.NextMomentSelf.Canopy = true
 		//TODO: Reinstate this log
