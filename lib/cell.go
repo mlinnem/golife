@@ -116,7 +116,7 @@ func (cell *Cell) GrowLegs() {
 	}
 }
 
-func moveRandom(cell *Cell) bool {
+func (cell *Cell) MoveRandom() bool {
 	if !cell.WantsToAndCanMove() {
 		return false
 	}
@@ -125,10 +125,9 @@ func moveRandom(cell *Cell) bool {
 		var xTry = cell.X + direction.X
 		var yTry = cell.Y + direction.Y
 
-		//TODO: Really need to do some locking here to prevent corruption
 		if !NextMoment.IsOccupied(xTry, yTry) {
-			NextMoment.CellsSpatialIndex[xTry][yTry] = cell
 			NextMoment.CellsSpatialIndex[cell.X][cell.Y] = nil
+			NextMoment.CellsSpatialIndex[xTry][yTry] = cell
 			cell.X = xTry
 			cell.Y = yTry
 			cell.DecreaseEnergy(MOVE_COST)
@@ -238,5 +237,3 @@ func GetSurroundingDirectionsInRandomOrder() []Direction {
 	}
 	return surroundingDirectionsInRandomOrder
 }
-
-//-----CELL POOL--------

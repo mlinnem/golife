@@ -241,6 +241,8 @@ func cellActionExecuter(wg *sync.WaitGroup) {
 			cellAction.cell.Wait()
 		case cellaction_growlegs:
 			cellAction.cell.GrowLegs()
+		case cellaction_moverandom:
+			cellAction.cell.MoveRandom()
 		}
 		wg.Done()
 	}
@@ -332,23 +334,20 @@ func reproduce(cell *Cell) {
 			}
 			//TODO: Better way to do this
 
-			//TODO: This whole way of doing legs is weird. Should be on or off switch methinks
-			//var rand0To99_2 = rand.Intn(100)
-			//if rand0To99_2 == 0 {
-			//legless gets legs
-			//	babyCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST
-			//	babyCell.MoveChance = float64(rand.Intn(40))
-			//} else if rand0To99_2 == 1 {
-			//legged goes legless
-			//	babyCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
-			//	babyCell.MoveChance = 0.0
-			//} else {
-			//mutate like normal
-			//	babyCell.GrowLegsAt = math.Max(GROWLEGS_COST, float64(cell.GrowLegsAt+float64(rand.Intn(7)-3)))
-			//	babyCell.MoveChance = math.Max(0.0, float64(cell.MoveChance+float64(rand.Intn(7)-3)))
-			//}
-			//TODO: Just trying to disable this
-			babyCell.GrowLegsAt = 999
+			var rand0To99_2 = rand.Intn(100)
+			if rand0To99_2 == 0 {
+				//legless gets legs
+				babyCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST
+				babyCell.MoveChance = float64(rand.Intn(40))
+			} else if rand0To99_2 == 1 {
+				//legged goes legless
+				babyCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
+				babyCell.MoveChance = 0.0
+			} else {
+				//mutate like normal
+				babyCell.GrowLegsAt = math.Max(GROWLEGS_COST, float64(cell.GrowLegsAt+float64(rand.Intn(7)-3)))
+				babyCell.MoveChance = math.Max(0.0, float64(cell.MoveChance+float64(rand.Intn(7)-3)))
+			}
 
 			babyCell.PercentChanceWait = int(math.Max(0.0, float64(cell.PercentChanceWait+rand.Intn(7)-3)))
 
@@ -450,21 +449,6 @@ func lockYXRangeInclusive(startY int, endY int, startX int, endX int, who string
 	bulkGrabLock.Unlock()
 }
 
-func unlockYXRangeInclusive(startY int, endY int, startX int, endX int, who string) {
-	for y := startY; y < endY+1; y++ {
-		for x := startX; x < endX+1; x++ {
-			if !NextMoment.IsOutOfBounds(x, y) {
-				Log(LOGTYPE_DEBUGCONCURRENCY, "%s is going to unlock %d, %d\n", who, x, y)
-				//	NextMomentYXLocks[y][x].Unlock()
-			}
-		}
-	}
-}
-
-func unlockAllYXs(who string) {
-	unlockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
-}
-
 var SpeciesIDCounter = 0
 var IDCounter = 0
 
@@ -498,15 +482,13 @@ func spontaneouslyGenerateCell() {
 			newCell.EnergyReproduceThreshold = newCell.EnergySpentOnReproducing + float64(rand.Intn(120))
 			newCell.Canopy = false
 			newCell.GrowCanopyAt = float64(rand.Intn(120)) + GROWCANOPY_COST
-			//if rand.Intn(100) < 50 {
-			//	newCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST
-			//	newCell.MoveChance = float64(rand.Intn(40))
-			//} else {
-			//		newCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
-			//		newCell.MoveChance = 0.0
-			//	}
-			newCell.GrowLegsAt = 9999
-			newCell.Legs = false
+			if rand.Intn(100) < 50 {
+				newCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST
+				newCell.MoveChance = float64(rand.Intn(40))
+			} else {
+				newCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
+				newCell.MoveChance = 0.0
+			}
 
 			newCell.X_originalMoveChance = newCell.MoveChance
 			newCell.X_originalGrowLegsAt = newCell.GrowLegsAt
@@ -659,4 +641,19 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 	for i := 0; i < numSurrounders; i++ {
 		surroundingCellsWithCanopiesAndMe[i].IncreaseEnergy(energyToEachCell)
 	}
+}
+
+func unlockYXRangeInclusive(startY int, endY int, startX int, endX int, who string) {
+	for y := startY; y < endY+1; y++ {
+		for x := startX; x < endX+1; x++ {
+			if !NextMoment.IsOutOfBounds(x, y) {
+				Log(LOGTYPE_DEBUGCONCURRENCY, "%s is going to unlock %d, %d\n", who, x, y)
+				//	NextMomentYXLocks[y][x].Unlock()
+			}
+		}
+	}
+}
+
+func unlockAllYXs(who string) {
+	unlockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
 }
