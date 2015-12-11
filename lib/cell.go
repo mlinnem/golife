@@ -53,18 +53,18 @@ type TextColorBookend struct {
 
 func (cell *Cell) DecreaseEnergy(amt float64) {
 	//TODO: Inlined dead stuff for performance reasons
-	if (!(cell.Energy <= 0.0)) || cell.NextMomentSelf != nil {
+	if cell.Energy > 0 && cell.NextMomentSelf != nil {
 		//	if !cell.isDead() {
 		//Log(LOGTYPE_CELLEFFECT, "the future cell %d currently has %f energy\n", cell.NextMomentSelf.ID, cell.NextMomentSelf.Energy)
 		//Log(LOGTYPE_CELLEFFECT, "decreased cell %d by %f\n", cell.NextMomentSelf.ID, amt)
-		cell.NextMomentSelf.Energy = cell.NextMomentSelf.Energy - amt
+		cell.NextMomentSelf.Energy -= amt
 		//Log(LOGTYPE_CELLEFFECT, "cell %d will now have %f energy\n", cell.NextMomentSelf.ID, cell.NextMomentSelf.Energy)
 	}
 }
 
 func (cell *Cell) IncreaseEnergy(amt float64) {
 	//TODO: Inlined dead stuff for performance reasons
-	if (!(cell.Energy <= 0.0)) || cell.NextMomentSelf != nil {
+	if cell.Energy > 0 && cell.NextMomentSelf != nil {
 		//	Log(LOGTYPE_CELLEFFECT, "the future cell %d currently has %f energy\n", cell.NextMomentSelf.ID, cell.NextMomentSelf.Energy)
 		//	Log(LOGTYPE_CELLEFFECT, "increased cell %d by %f\n", cell.NextMomentSelf.ID, amt)
 		cell.NextMomentSelf.Energy = cell.NextMomentSelf.Energy + amt
@@ -101,7 +101,6 @@ func (cell *Cell) IncreaseWaitTime(amt int) {
 }
 
 func (cell *Cell) GrowLegs() {
-
 	if cell.isDead() {
 		return
 	} else if !cell.IsReadyToGrowLegs() {
@@ -109,10 +108,8 @@ func (cell *Cell) GrowLegs() {
 		cell.NextMomentSelf.DecreaseEnergy(GROWLEGS_COST)
 		return
 	} else {
-		var NextMomentSelf = cell.NextMomentSelf
-		//TODO: Disabled leg growing. Should re-enable when it's no longer under suspicion
-		NextMomentSelf.Legs = false
-		NextMomentSelf.DecreaseEnergy(GROWLEGS_COST)
+		cell.NextMomentSelf.Legs = true
+		cell.NextMomentSelf.DecreaseEnergy(GROWLEGS_COST)
 	}
 }
 
@@ -126,8 +123,8 @@ func (cell *Cell) MoveRandom() bool {
 		var yTry = cell.Y + direction.Y
 
 		if !NextMoment.IsOccupied(xTry, yTry) {
-			NextMoment.CellsSpatialIndex[cell.X][cell.Y] = nil
 			NextMoment.CellsSpatialIndex[xTry][yTry] = cell
+			NextMoment.CellsSpatialIndex[cell.X][cell.Y] = nil
 			cell.X = xTry
 			cell.Y = yTry
 			cell.DecreaseEnergy(MOVE_COST)
@@ -149,8 +146,6 @@ func (cell *Cell) ShouldWait() bool {
 }
 
 func (cell *Cell) isDead() bool {
-	//TODO: Why do I have to check future self as well?
-
 	return cell.Energy <= 0 || cell.NextMomentSelf == nil
 }
 
@@ -203,7 +198,7 @@ foundSpot:
 }
 
 func (cell *Cell) IsReadyToGrowLegs() bool {
-	return cell.Legs == false && cell.Energy > cell.GrowLegsAt
+	return !cell.isDead() && cell.Legs == false && cell.Energy > cell.GrowLegsAt
 }
 
 func (cell *Cell) CountDown_TimeLeftToWait() {

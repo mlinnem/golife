@@ -135,7 +135,7 @@ func PrintGrid(moment *Moment) {
 	Log(LOGTYPE_PRINTGRID_SUMMARY, "Percent Chance to Move (with legs) Average: %f\n", percentMoveAvg)
 	Log(LOGTYPE_PRINTGRID_SUMMARY, "New species so far: %d\n", SpeciesCounter)
 
-	Log(LOGTYPE_PRINTGRID_SUMMARY, "\n\n\n")
+	Log(LOGTYPE_PRINTGRID_SUMMARY, "\n")
 }
 
 type Pair struct {

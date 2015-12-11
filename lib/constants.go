@@ -5,7 +5,7 @@ package lib
 //---RUN_CONDITIONS-----
 const RANDOM_SEED = true
 
-const MAX_MOMENTS = 900
+const MAX_MOMENTS = 90000
 
 //---WORLD_CONDITIONS---
 const SHINEEnergy_AMOUNT = 2.0
