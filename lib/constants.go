@@ -5,7 +5,7 @@ package lib
 //---RUN_CONDITIONS-----
 const RANDOM_SEED = true
 
-const MAX_MOMENTS = 9000
+const MAX_MOMENTS = 900
 
 //---WORLD_CONDITIONS---
 const SHINEEnergy_AMOUNT = 2.0
@@ -35,7 +35,7 @@ const (
 	LOGTYPE_CELLEFFECT             = iota
 )
 
-const PRINTGRID_EVERY_N_TURNS = 10
+const PRINTGRID_EVERY_N_TURNS = 20
 
 const SPECIES_DIVERGENCE_THRESHOLD = 65
 

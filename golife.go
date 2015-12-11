@@ -302,7 +302,6 @@ func reproduce(cell *Cell) {
 		cell.DecreaseEnergy(cell.EnergySpentOnReproducing)
 		return
 	}
-	lockAllYXs("reproduce")
 	//try all spots surrounding the cell
 	for _, direction := range GetSurroundingDirectionsInRandomOrder() {
 		var xTry = cell.X + direction.X
@@ -431,9 +430,9 @@ func maintainAllCells() {
 	Log(LOGTYPE_MAINLOOPSINGLE, "Ending maintain\n")
 }
 
-func lockAllYXs(who string) {
-	lockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
-}
+//func lockAllYXs(who string) {
+//	lockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
+//}
 
 func lockYXRangeInclusive(startY int, endY int, startX int, endX int, who string) {
 	Log(LOGTYPE_DEBUGCONCURRENCY, "%s Trying to grab bulk lock\n", who)
