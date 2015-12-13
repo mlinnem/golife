@@ -1,26 +1,32 @@
 package lib
 
-import "math/rand"
+import (
+	"math"
+	"math/rand"
+)
 
 //---UKEEEP-------------
 const CELL_LIFESPAN = 300
 
-const BASE_CELL_UPKEEP = 1.0
-const CANOPY_UPKEEP = 4.0 * BASE_CELL_UPKEEP
-const LEGS_UPKEEP = .2
+const BASE_CELL_UPKEEP = 0.5
+const CANOPY_UPKEEP = 3.0
+const LEGS_UPKEEP = .25
+const HEIGHT_UPKEEP = .25
 
 //---ACTION_COSTS-------
 const MOVE_COST = 5
-const THINKING_COST = 5.0
+const THINKING_COST = 3.0
 const REPRODUCE_COST = 30
-const GROWCANOPY_COST = 4.0 * REPRODUCE_COST
+const GROWCANOPY_COST = 120
 const GROWLEGS_COST = 45
+const GROWHEIGHT_COST = 200
 
 //TODO: Make it easy to add a field and have it appear in all the right places Re: copying and whatnot
 type Cell struct {
 	Energy                             float64
 	X                                  int
 	Y                                  int
+	Height                             int
 	ID                                 int
 	TimeLeftToWait                     int
 	ClockRate                          int
@@ -28,6 +34,7 @@ type Cell struct {
 	Legs                               bool
 	GrowCanopyAt                       float64
 	GrowLegsAt                         float64
+	GrowHeightAt                       float64
 	EnergySpentOnReproducing           float64
 	NextMomentSelf                     *Cell
 	Age                                int
@@ -35,6 +42,7 @@ type Cell struct {
 	PercentChanceWait                  int     //out of 100
 	MoveChance                         float64 //out of 100
 	_secretID                          int
+	X_originalGrowHeightAt             float64
 	X_originalGrowCanopyAt             float64
 	X_originalPercentChanceWait        int
 	X_originalEnergySpentOnReproducing float64
@@ -51,28 +59,26 @@ type TextColorBookend struct {
 	EndSequence   string
 }
 
+var TracedCell *Cell
+
 func (cell *Cell) DecreaseEnergy(amt float64) {
 	//TODO: Inlined dead stuff for performance reasons
 	if cell.Energy > 0 && cell.NextMomentSelf != nil {
-		//	if !cell.isDead() {
-		//Log(LOGTYPE_CELLEFFECT, "the future cell %d currently has %f energy\n", cell.NextMomentSelf.ID, cell.NextMomentSelf.Energy)
-		//Log(LOGTYPE_CELLEFFECT, "decreased cell %d by %f\n", cell.NextMomentSelf.ID, amt)
+		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "\tenergy %6.1f -> %6.1f -%6.1f\n", cell.NextMomentSelf.Energy, cell.NextMomentSelf.Energy-amt, amt)
 		cell.NextMomentSelf.Energy -= amt
-		//Log(LOGTYPE_CELLEFFECT, "cell %d will now have %f energy\n", cell.NextMomentSelf.ID, cell.NextMomentSelf.Energy)
 	}
 }
 
 func (cell *Cell) IncreaseEnergy(amt float64) {
 	//TODO: Inlined dead stuff for performance reasons
 	if cell.Energy > 0 && cell.NextMomentSelf != nil {
-		//	Log(LOGTYPE_CELLEFFECT, "the future cell %d currently has %f energy\n", cell.NextMomentSelf.ID, cell.NextMomentSelf.Energy)
-		//	Log(LOGTYPE_CELLEFFECT, "increased cell %d by %f\n", cell.NextMomentSelf.ID, amt)
-		cell.NextMomentSelf.Energy = cell.NextMomentSelf.Energy + amt
+		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "\tenergy %6.1f -> %6.1f, +%6.1f\n", cell.NextMomentSelf.Energy, cell.NextMomentSelf.Energy+amt, amt)
 
-		//	Log(LOGTYPE_CELLEFFECT, "cell %d will now have %f energy\n", cell.NextMomentSelf.ID, cell.NextMomentSelf.Energy)
+		cell.NextMomentSelf.Energy = cell.NextMomentSelf.Energy + amt
 	}
 }
 
+//TODO: Why dpes height trigger flip out on species, and why is height so adaptive even without canapies.
 func (cell *Cell) Maintain() {
 	var totalUpkeep = BASE_CELL_UPKEEP
 	if cell.Legs {
@@ -81,7 +87,11 @@ func (cell *Cell) Maintain() {
 	if cell.Canopy {
 		totalUpkeep += CANOPY_UPKEEP
 	}
-	//	Log(LOGTYPE_CELLEFFECT, "cell %d is about to be maintained\n", cell.ID)
+	if cell.Height == 1 {
+		totalUpkeep += HEIGHT_UPKEEP
+	}
+	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: canopy %t, height %d, legs %t\n", cell.ID, cell.Canopy, cell.Height, cell.Legs)
+	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: maintain of %6.1f at age %d\n", cell.ID, totalUpkeep, cell.Age)
 	cell.DecreaseEnergy((totalUpkeep * float64(cell.Age)) / CELL_LIFESPAN)
 	//cell.DecreaseEnergy(40)
 	//	cell.Energy -= totalUpkeep * float64(cell.Age) / CELL_LIFESPAN
@@ -90,13 +100,28 @@ func (cell *Cell) Maintain() {
 
 func (cell *Cell) increaseAge(amt int) {
 	if !cell.isDead() {
+		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Age %d -> %d, +1\n", cell.ID, cell.Age, cell.Age+1)
 		cell.NextMomentSelf.Age = cell.NextMomentSelf.Age + amt
 	}
 }
 
 func (cell *Cell) IncreaseWaitTime(amt int) {
 	if !cell.isDead() {
+		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Wait time %d -> %d, +%d\n", cell.ID, cell.TimeLeftToWait, cell.TimeLeftToWait+amt, amt)
 		cell.NextMomentSelf.TimeLeftToWait += amt
+	}
+}
+
+func (cell *Cell) GrowHeight() {
+	if cell.isDead() {
+		return
+	} else if !cell.IsReadyToGrowHeight() {
+		cell.DecreaseEnergy(GROWHEIGHT_COST)
+		return
+	} else {
+		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Growing height\n", cell.ID)
+		cell.NextMomentSelf.Height = 1
+		cell.DecreaseEnergy(GROWHEIGHT_COST)
 	}
 }
 
@@ -104,12 +129,12 @@ func (cell *Cell) GrowLegs() {
 	if cell.isDead() {
 		return
 	} else if !cell.IsReadyToGrowLegs() {
-		//unable to reproduce, but pays cost for trying. Grim.
-		cell.NextMomentSelf.DecreaseEnergy(GROWLEGS_COST)
+		cell.DecreaseEnergy(GROWLEGS_COST)
 		return
 	} else {
+		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Growing legs\n", cell.ID)
 		cell.NextMomentSelf.Legs = true
-		cell.NextMomentSelf.DecreaseEnergy(GROWLEGS_COST)
+		cell.DecreaseEnergy(GROWLEGS_COST)
 	}
 }
 
@@ -123,6 +148,7 @@ func (cell *Cell) MoveRandom() bool {
 		var yTry = cell.Y + direction.Y
 
 		if !NextMoment.IsOccupied(xTry, yTry) {
+			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Moving %d, %d -> %d, %d\n", cell.ID, cell.X, cell.Y, xTry, yTry)
 			NextMoment.CellsSpatialIndex[xTry][yTry] = cell
 			NextMoment.CellsSpatialIndex[cell.X][cell.Y] = nil
 			cell.X = xTry
@@ -137,6 +163,7 @@ func (cell *Cell) MoveRandom() bool {
 
 func (cell *Cell) Wait() {
 	if !cell.isDead() {
+		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Waiting %d -> %d\n", cell.ID, cell.NextMomentSelf.TimeLeftToWait, cell.ClockRate*ACTUAL_WAIT_MULTIPLIER)
 		cell.NextMomentSelf.TimeLeftToWait = ACTUAL_WAIT_MULTIPLIER * cell.ClockRate
 	}
 }
@@ -173,9 +200,13 @@ func (cell *Cell) IsReadyToGrowCanopy() bool {
 	return cell.Canopy == false && cell.Energy > cell.GrowCanopyAt
 }
 
+func (cell *Cell) IsReadyToGrowHeight() bool {
+	return cell.Height == 0 && cell.Energy > cell.GrowHeightAt
+}
+
 func (cell *Cell) WantsToAndCanMove() bool {
 	//TODO: Do we need to be doing this on each pre-check?
-	if cell.isDead() {
+	if cell.isDead() || cell.Legs == false {
 		return false
 	}
 	var isThereASpotToMove = false
@@ -203,7 +234,9 @@ func (cell *Cell) IsReadyToGrowLegs() bool {
 
 func (cell *Cell) CountDown_TimeLeftToWait() {
 	if !cell.isDead() {
-		cell.NextMomentSelf.TimeLeftToWait--
+		//TODO: This may not be necessary to Max
+		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Waiting... (%d left)\n", cell.ID, cell.NextMomentSelf.TimeLeftToWait-1)
+		cell.NextMomentSelf.TimeLeftToWait = int(math.Max(0.0, float64(cell.NextMomentSelf.TimeLeftToWait-1)))
 	}
 }
 
@@ -216,10 +249,11 @@ func (cell *Cell) GrowCanopy() {
 		return
 		//TODO: Not sure why I need to check this condition twice, but it seems to prevent a nil reference thing. Or does it?
 	} else if !cell.isDead() {
+		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Growing Canopy\n", cell.ID)
 		cell.NextMomentSelf.Canopy = true
 		//TODO: Reinstate this log
 		//Log(LOGTYPE_CELLEFFECT, "Cell %d grew canopy\n", cell.ID)
-		cell.NextMomentSelf.DecreaseEnergy(GROWCANOPY_COST)
+		cell.DecreaseEnergy(GROWCANOPY_COST)
 	}
 }
 

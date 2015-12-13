@@ -19,6 +19,9 @@ func (oldCell *Cell) ContinueOn() *Cell {
 	var continuedCell = Copy(oldCell)
 	//TODO: Re-enable when I figure out how to access momentNum
 	//Log(LOGTYPE_CELLEFFECT, "cell %d now has a future self established during moment %d\n", oldCell.ID, momentNum)
+	if TracedCell != nil && oldCell.ID == TracedCell.ID {
+		TracedCell = continuedCell
+	}
 	oldCell.NextMomentSelf = continuedCell
 	return continuedCell
 }
@@ -42,13 +45,17 @@ loop:
 
 func Copy(oldCell *Cell) *Cell {
 	//TODO: Can this not be done by just a generic struct copy?
+	//TODO: Or, iterate over fields?
 	var newCell = CellPool.Borrow()
 	newCell.Energy = oldCell.Energy
 	newCell.Age = oldCell.Age
 	newCell.X = oldCell.X
 	newCell.ID = oldCell.ID
 	newCell.Y = oldCell.Y
+	newCell.Height = oldCell.Height
 	newCell.SpeciesID = oldCell.SpeciesID
+	newCell.TimeLeftToWait = oldCell.TimeLeftToWait
+	newCell.GrowHeightAt = oldCell.GrowHeightAt
 	newCell.PercentChanceWait = oldCell.PercentChanceWait
 	newCell.SpeciesColor = oldCell.SpeciesColor
 	newCell.EnergySpentOnReproducing = oldCell.EnergySpentOnReproducing
