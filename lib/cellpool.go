@@ -33,7 +33,7 @@ loop:
 		for _, cellToDelete := range cellsToDelete {
 			if cellThatExists == cellToDelete {
 				CellPool.Return(cellToDelete)
-				moment.CellsSpatialIndex[cellToDelete.X][cellToDelete.Y] = nil
+				moment.CellsSpatialIndex[cellToDelete.Y][cellToDelete.X] = nil
 				continue loop
 			}
 		}
@@ -66,6 +66,7 @@ func Copy(oldCell *Cell) *Cell {
 	newCell.Legs = oldCell.Legs
 	newCell.MoveChance = oldCell.MoveChance
 	newCell.GrowLegsAt = oldCell.GrowLegsAt
+	newCell.X_originalGrowHeightAt = oldCell.X_originalGrowHeightAt
 	newCell.X_originalMoveChance = oldCell.X_originalMoveChance
 	newCell.X_originalGrowLegsAt = oldCell.X_originalGrowLegsAt
 	newCell.X_originalEnergyReproduceThreshold = oldCell.X_originalEnergyReproduceThreshold

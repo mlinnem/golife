@@ -44,8 +44,9 @@ func hasSignificantGeneticDivergence(cell *Cell) bool {
 	var GrowCanopyAtDiff = math.Abs(float64(cell.X_originalGrowCanopyAt) - float64(cell.GrowCanopyAt))
 	var ClockRateDiff = math.Abs(float64(cell.X_originalClockRate) - float64(cell.ClockRate))
 	var EnergySpentOnReproducingDiff = math.Abs(cell.X_originalEnergySpentOnReproducing - cell.EnergySpentOnReproducing)
-	var PercentChanceWaitDiff = math.Abs(float64(cell.X_originalPercentChanceWait) - float64(cell.PercentChanceWait))
-	var totalDiff = GrowHeightAtDiff + GrowCanopyAtDiff + ClockRateDiff + energyReproduceThresholdDiff + EnergySpentOnReproducingDiff + PercentChanceWaitDiff
+	//	var PercentChanceWaitDiff = math.Abs(float64(cell.X_originalPercentChanceWait) - float64(cell.PercentChanceWait))
+	//vfar totalDiff = GrowCanopyAtDiff + ClockRateDiff + energyReproduceThresholdDiff + EnergySpentOnReproducingDiff + PercentChanceWaitDiff
+	var totalDiff = 0.0
 	//if totalDiff > SPECIES_DIVERGENCE_THRESHOLD {
 	//	Log("X_original energy threshold: %f\n", cell._X_originalEnergyReproduceThreshold)
 	//fmt.Printf("current energy threshold: %f\n", cell.EnergyReproduceThreshold)
@@ -89,18 +90,18 @@ func printCell(cell *Cell) {
 func PrintGrid(moment *Moment) {
 	if containsInt(LOGTYPES_ENABLED, LOGTYPE_PRINTGRID_GRID) {
 		Log(LOGTYPE_PRINTGRID_GRID, "\n")
-		for row := range moment.CellsSpatialIndex {
-			for col := range moment.CellsSpatialIndex[row] {
-				var cell = moment.CellsSpatialIndex[row][col]
+		for yi := range moment.CellsSpatialIndex {
+			for xi := range moment.CellsSpatialIndex[yi] {
+				var cell = moment.CellsSpatialIndex[yi][xi]
 				printCell(cell)
 			}
 			Log(LOGTYPE_PRINTGRID_GRID, "\n")
 		}
 	} else if containsInt(LOGTYPES_ENABLED, LOGTYPE_PRINTGRID_BIGGRID) {
 		Log(LOGTYPE_PRINTGRID_BIGGRID, "\n")
-		for row := 0; row < len(moment.CellsSpatialIndex); row += BIGGRID_INCREMENT {
-			for col := 0; col < len(moment.CellsSpatialIndex); col += BIGGRID_INCREMENT {
-				var cell = moment.CellsSpatialIndex[row][col]
+		for yi := 0; yi < len(moment.CellsSpatialIndex); yi += BIGGRID_INCREMENT {
+			for xi := 0; xi < len(moment.CellsSpatialIndex[0]); xi += BIGGRID_INCREMENT {
+				var cell = moment.CellsSpatialIndex[yi][xi]
 				printCell(cell)
 			}
 			Log(LOGTYPE_PRINTGRID_BIGGRID, "\n")
@@ -158,8 +159,8 @@ func PrintGrid(moment *Moment) {
 	var energyAvg = float64(energyTotal) / float64(len(moment.Cells))
 	var ageAvg = float64(ageTotal) / float64(len(moment.Cells))
 
-	Log(LOGTYPE_PRINTGRID_SUMMARY, "Average age: %f6.1\n", ageAvg)
-	Log(LOGTYPE_PRINTGRID_SUMMARY, "Average energy: %f6.1\n", energyAvg)
+	Log(LOGTYPE_PRINTGRID_SUMMARY, "Average age: %6.1f\n", ageAvg)
+	Log(LOGTYPE_PRINTGRID_SUMMARY, "Average energy: %6.1f\n", energyAvg)
 	Log(LOGTYPE_PRINTGRID_SUMMARY, "Energy Reproduce Threshold Average: %f\n", energyReproduceThresholdAvg)
 	Log(LOGTYPE_PRINTGRID_SUMMARY, "Energy Spent on Reproducing Average: %f\n", EnergySpentOnReproducingAvg)
 	Log(LOGTYPE_PRINTGRID_SUMMARY, "Percent Chance to Wait Average: %f\n", PercentChanceWaitAvg)
@@ -212,7 +213,7 @@ func PrintSpeciesReport(moment *Moment, topXSpecies int) {
 		var specimen *Cell = SpeciesIDToSpecimen[SpeciesID]
 
 		//TODO: Need to report species number right. Dot for now
-		Log(LOGTYPE_SPECIESREPORT, "Species %s\t "+specimen.SpeciesColor.StartSequence+"x"+specimen.SpeciesColor.EndSequence+"\t"+"\t"+"Count: %d\t reprod threshold: %6.1f\t reprod energy: %6.1f\t gcanopy thresh: %6.1f\t wait percent: %d\t clock rate %d\t gleg thresh: %6.1f\n, moveChance: %6.1f\n, growHeightAt %6.1f\n",
+		Log(LOGTYPE_SPECIESREPORT, "Species %s\t "+specimen.SpeciesColor.StartSequence+"x"+specimen.SpeciesColor.EndSequence+"\t"+"\t"+"Count: %d\t reprod threshold: %6.1f\t reprod energy: %6.1f\t gcanopy thresh: %6.1f\t wait percent: %d\t clock rate %d\t gleg thresh: %6.1f\n, moveChance: %6.1f\t, growHeightAt %6.1f\n",
 			".", count, specimen.X_originalEnergyReproduceThreshold, specimen.X_originalEnergySpentOnReproducing, specimen.X_originalGrowCanopyAt, specimen.X_originalPercentChanceWait, specimen.X_originalClockRate, specimen.X_originalGrowLegsAt, specimen.X_originalMoveChance, specimen.X_originalGrowHeightAt)
 	}
 	Log(LOGTYPE_SPECIESREPORT, "\n")

@@ -11,7 +11,7 @@ var NextMoment *Moment
 type Moment struct {
 	MomentNum         int
 	Cells             []*Cell
-	CellsSpatialIndex [GRID_WIDTH][GRID_HEIGHT]*Cell
+	CellsSpatialIndex [GRID_HEIGHT][GRID_WIDTH]*Cell
 }
 
 //TODO: Maybe do this in tandem with goroutine in future
@@ -26,7 +26,7 @@ func (moment *Moment) Clean(wg *sync.WaitGroup) {
 	//TODO: Put log back in when you can make log its own module thingie
 	//Log(LOGTYPE_MAINLOOPSINGLE, "You made it to right before allocating the big cell thing\n")
 	//TODO: Letting garbage collector take care of cleaning rather than manual for now
-	moment.CellsSpatialIndex = [GRID_WIDTH][GRID_HEIGHT]*Cell{}
+	moment.CellsSpatialIndex = [GRID_HEIGHT][GRID_WIDTH]*Cell{}
 	// for yi := range moment.CellsSpatialIndex {
 	// 	//internalwg.Add(1)
 	// 	moment.CleanRow(yi)
@@ -38,7 +38,7 @@ func (moment *Moment) Clean(wg *sync.WaitGroup) {
 
 func (moment *Moment) CleanRow(yi int) {
 	for xi := range moment.CellsSpatialIndex[yi] {
-		moment.CellsSpatialIndex[xi][yi] = nil
+		moment.CellsSpatialIndex[yi][xi] = nil
 	}
 	//wg.Done()
 }
@@ -47,7 +47,7 @@ func (moment *Moment) IsOccupied(x int, y int) bool {
 	if moment.IsOutOfBounds(x, y) {
 		return true
 	}
-	return moment.CellsSpatialIndex[x][y] != nil
+	return moment.CellsSpatialIndex[y][x] != nil
 }
 
 func (moment *Moment) ReturnCellsToPool() {
@@ -77,8 +77,8 @@ func (moment *Moment) getSurroundingCells(x int, y int) []*Cell {
 			var xTry = x + relativeX
 			var yTry = y + relativeY
 			//Inlined from !outofBounds and IsOccupied
-			if !(xTry < 0 || xTry > GRID_WIDTH-1 || yTry < 0 || yTry > GRID_HEIGHT-1) && moment.CellsSpatialIndex[x][y] != nil {
-				var cell = moment.CellsSpatialIndex[xTry][yTry]
+			if !(xTry < 0 || xTry > GRID_WIDTH-1 || yTry < 0 || yTry > GRID_HEIGHT-1) && moment.CellsSpatialIndex[y][x] != nil {
+				var cell = moment.CellsSpatialIndex[yTry][xTry]
 				surroundingCells = append(surroundingCells, cell)
 			}
 		}

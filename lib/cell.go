@@ -8,7 +8,7 @@ import (
 //---UKEEEP-------------
 const CELL_LIFESPAN = 300
 
-const BASE_CELL_UPKEEP = 0.5
+const BASE_CELL_UPKEEP = 1.0
 const CANOPY_UPKEEP = 3.0
 const LEGS_UPKEEP = .25
 const HEIGHT_UPKEEP = .25
@@ -19,7 +19,7 @@ const THINKING_COST = 3.0
 const REPRODUCE_COST = 30
 const GROWCANOPY_COST = 120
 const GROWLEGS_COST = 45
-const GROWHEIGHT_COST = 200
+const GROWHEIGHT_COST = 150
 
 //TODO: Make it easy to add a field and have it appear in all the right places Re: copying and whatnot
 type Cell struct {
@@ -90,8 +90,10 @@ func (cell *Cell) Maintain() {
 	if cell.Height == 1 {
 		totalUpkeep += HEIGHT_UPKEEP
 	}
-	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: canopy %t, height %d, legs %t\n", cell.ID, cell.Canopy, cell.Height, cell.Legs)
-	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: maintain of %6.1f at age %d\n", cell.ID, totalUpkeep, cell.Age)
+	if cell != nil {
+		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d GROW STATUS: canopy %t, height %d, legs %t\n", cell.ID, cell.Canopy, cell.Height, cell.Legs)
+		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: maintain of %6.1f at age %d\n", cell.ID, totalUpkeep, cell.Age)
+	}
 	cell.DecreaseEnergy((totalUpkeep * float64(cell.Age)) / CELL_LIFESPAN)
 	//cell.DecreaseEnergy(40)
 	//	cell.Energy -= totalUpkeep * float64(cell.Age) / CELL_LIFESPAN
@@ -149,8 +151,8 @@ func (cell *Cell) MoveRandom() bool {
 
 		if !NextMoment.IsOccupied(xTry, yTry) {
 			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Moving %d, %d -> %d, %d\n", cell.ID, cell.X, cell.Y, xTry, yTry)
-			NextMoment.CellsSpatialIndex[xTry][yTry] = cell
-			NextMoment.CellsSpatialIndex[cell.X][cell.Y] = nil
+			NextMoment.CellsSpatialIndex[yTry][xTry] = cell
+			NextMoment.CellsSpatialIndex[cell.Y][cell.X] = nil
 			cell.X = xTry
 			cell.Y = yTry
 			cell.DecreaseEnergy(MOVE_COST)
@@ -178,8 +180,8 @@ func (cell *Cell) isDead() bool {
 
 func (cell *Cell) IsTimeToReproduce() bool {
 	var isThereASpotToReproduce = false
-	for relativeX := -1; relativeX < 2; relativeX++ {
-		for relativeY := -1; relativeY < 2; relativeY++ {
+	for relativeY := -1; relativeY < 2; relativeY++ {
+		for relativeX := -1; relativeX < 2; relativeX++ {
 			var xTry = cell.X + relativeX
 			var yTry = cell.Y + relativeY
 			if !NextMoment.IsOccupied(xTry, yTry) {

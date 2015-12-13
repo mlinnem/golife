@@ -46,7 +46,7 @@ func startPersistentThreads() {
 
 func transferLiveCellsToNextMoment() {
 	NextMoment.Cells = make([]*Cell, 0, len(CurrentMoment.Cells))
-	NextMoment.CellsSpatialIndex = [GRID_WIDTH][GRID_HEIGHT]*Cell{}
+	NextMoment.CellsSpatialIndex = [GRID_HEIGHT][GRID_WIDTH]*Cell{}
 	for _, CurrentMomentCell := range CurrentMoment.Cells {
 
 		//This takes place of reaper function
@@ -54,7 +54,7 @@ func transferLiveCellsToNextMoment() {
 		if CurrentMomentCell.Energy > 0 {
 			var NextMomentCell = CurrentMomentCell.ContinueOn()
 			NextMoment.Cells = append(NextMoment.Cells, NextMomentCell)
-			NextMoment.CellsSpatialIndex[NextMomentCell.X][NextMomentCell.Y] = NextMomentCell
+			NextMoment.CellsSpatialIndex[NextMomentCell.Y][NextMomentCell.X] = NextMomentCell
 		}
 	}
 	Log(LOGTYPE_MAINLOOPSINGLE, "Transferred cells over to next moment by default, same loc\n")
@@ -393,6 +393,7 @@ func reproduce(cell *Cell) {
 			babyCell.Age = 0
 			babyCell.Canopy = false
 			babyCell.GrowCanopyAt = math.Max(GROWCANOPY_COST, cell.GrowCanopyAt+float64(rand.Intn(7)-3))
+			//TODO: Turn mutation back on when things aren't jacked up
 			babyCell.GrowHeightAt = cell.GrowHeightAt //math.Max(GROWHEIGHT_COST, cell.GrowHeightAt+float64(rand.Intn(9)-5))
 
 			babyCell.X_originalGrowHeightAt = cell.X_originalGrowHeightAt
@@ -429,7 +430,7 @@ func reproduce(cell *Cell) {
 
 			}
 			NextMoment.Cells = append(NextMoment.Cells, babyCell)
-			NextMoment.CellsSpatialIndex[xTry][yTry] = babyCell
+			NextMoment.CellsSpatialIndex[yTry][xTry] = babyCell
 			cell.DecreaseEnergy(cell.EnergySpentOnReproducing)
 			return
 		}
@@ -438,21 +439,23 @@ func reproduce(cell *Cell) {
 }
 
 func hasSignificantGeneticDivergence(cell *Cell) bool {
-	var energyReproduceThresholdDiff = math.Abs(cell.X_originalEnergyReproduceThreshold - cell.EnergyReproduceThreshold)
 	//TODO: took canopy out because something is jacked up about it. Need to debug and put back in
 	//var GrowCanopyAtDiff = 0.0
 	//if cell.GrowCanopyAt != 0.0 {
 	//	GrowCanopyAtDiff = math.Abs(cell.X_OriginalGrowCanopyAt - cell.GrowCanopyAt)
 	//}
 
+	var energyReproduceThresholdDiff = math.Abs(cell.X_originalEnergyReproduceThreshold - cell.EnergyReproduceThreshold)
 	//var MoveChanceDiff = math.Abs(float64(cell._X_originalMoveChance) - float64(cell.MoveChance))
-	//var GrowLegsAtDiff = math.Abs(float64(cell._X_originalGrowLegsAt) - float64(cell.GrowCanopyAt))
+	//var GrowLegsAtDiff = math.Abs(float64(cell.X_originalGrowLegsAt) - float64(cell.GrowCanopyAt))
 	var GrowHeightAtDiff = math.Abs(float64(cell.X_originalGrowHeightAt) - float64(cell.GrowHeightAt))
 	var GrowCanopyAtDiff = math.Abs(float64(cell.X_originalGrowCanopyAt) - float64(cell.GrowCanopyAt))
 	var ClockRateDiff = math.Abs(float64(cell.X_originalClockRate) - float64(cell.ClockRate))
 	var EnergySpentOnReproducingDiff = math.Abs(cell.X_originalEnergySpentOnReproducing - cell.EnergySpentOnReproducing)
 	var PercentChanceWaitDiff = math.Abs(float64(cell.X_originalPercentChanceWait) - float64(cell.PercentChanceWait))
+	//	var totalDiff = GrowHeightAtDiff + GrowCanopyAtDiff + ClockRateDiff + energyReproduceThresholdDiff + EnergySpentOnReproducingDiff + PercentChanceWaitDiff
 	var totalDiff = GrowHeightAtDiff + GrowCanopyAtDiff + ClockRateDiff + energyReproduceThresholdDiff + EnergySpentOnReproducingDiff + PercentChanceWaitDiff
+	//var totalDiff = GrowHeightAtDiff
 	//if totalDiff > SPECIES_DIVERGENCE_THRESHOLD {
 	//	Log("X_original energy threshold: %f\n", cell._X_originalEnergyReproduceThreshold)
 	//	fmt.Printf("current energy threshold: %f\n", cell.EnergyReproduceThreshold)
@@ -545,7 +548,7 @@ func spontaneouslyGenerateCell() {
 
 			NextMoment.Cells = append(NextMoment.Cells, newCell)
 			Log(LOGTYPE_HIGHFREQUENCY, "Added cell %d to next moment\n", newCell.ID)
-			NextMoment.CellsSpatialIndex[xTry][yTry] = newCell
+			NextMoment.CellsSpatialIndex[yTry][xTry] = newCell
 		}
 		tries++
 		if tries > MAX_TRIES_TO_FIND_EMPTY_GRID_COORD {
@@ -633,8 +636,13 @@ func shineThisRow(yi int, isDayTime bool, wg *sync.WaitGroup) {
 	for xi := range CurrentMoment.CellsSpatialIndex[yi] {
 		if isDayTime { //int(YProximityToMiddleAsPercent(yi)*100)
 
-			var shineAmountForThisSquare = SHINE_ENERGY_AMOUNT * SHINE_FREQUENCY * (float64(xi) / GRID_HEIGHT) * 2 * 2 //* float64(float64(yi)/float64(GRID_HEIGHT))
+			var shineAmountForThisSquare float64
+			if xi%2 == 0 && yi%2 == 0 {
+				shineAmountForThisSquare = SHINE_ENERGY_AMOUNT * SHINE_FREQUENCY * 2 * 2 //* float64(float64(yi)/float64(GRID_HEIGHT))
 
+			} else {
+				shineAmountForThisSquare = SHINE_ENERGY_AMOUNT * SHINE_FREQUENCY * (float64(xi) / GRID_WIDTH) * 2 * 2 //* float64(float64(yi)/float64(GRID_HEIGHT))
+			}
 			newShineMethod(xi, yi, shineAmountForThisSquare)
 		} else {
 			//No sun at night
@@ -663,15 +671,15 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 			surroundingCellsWithCanopiesAndMe[0] = cell
 			numSurrounders++
 		}
-		for relativeX := -1; relativeX < 2; relativeX++ {
-			for relativeY := -1; relativeY < 2; relativeY++ {
+		for relativeY := -1; relativeY < 2; relativeY++ {
+			for relativeX := -1; relativeX < 2; relativeX++ {
 				var xTry = x + relativeX
 				var yTry = y + relativeY
 				if relativeX == 0 && relativeY == 0 {
 					continue
 				}
-				if !CurrentMoment.IsOutOfBounds(xTry, yTry) && CurrentMoment.IsOccupied(xTry, yTry) && CurrentMoment.CellsSpatialIndex[xTry][yTry].Canopy == true {
-					var surroundingCell = CurrentMoment.CellsSpatialIndex[xTry][yTry]
+				if !CurrentMoment.IsOutOfBounds(xTry, yTry) && CurrentMoment.IsOccupied(xTry, yTry) && CurrentMoment.CellsSpatialIndex[yTry][xTry].Canopy == true {
+					var surroundingCell = CurrentMoment.CellsSpatialIndex[yTry][xTry]
 					surroundingCellsWithCanopiesAndMe[numSurrounders] = surroundingCell
 					numSurrounders++
 				}
