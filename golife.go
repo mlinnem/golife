@@ -336,6 +336,29 @@ func nonCellActionExecuter(wg *sync.WaitGroup) {
 	}
 }
 
+var HIGH_MUTATION_CHANCE = 3
+var NO_MUTATION_CHANCE = 50
+
+func mutateNormMax(magnitudeNorm float64, magnitudeMax float64) float64 {
+	var rand0To99 = rand.Intn(100)
+
+	if rand0To99 < HIGH_MUTATION_CHANCE {
+		return float64(rand.Intn(int(magnitudeMax*2.0))) - magnitudeMax
+	} else if rand0To99 < 100-NO_MUTATION_CHANCE {
+		return float64(rand.Intn(int(magnitudeNorm*2.0))) - magnitudeNorm
+	} else {
+		return 0.0
+	}
+}
+
+func boundMinMax(current float64, min float64, max float64) float64 {
+	return math.Min(math.Max(current, min), max)
+}
+
+func mutateMinMaxInThisRange(current float64, magnitudeNorm float64, magnitudeMax float64, min float64, max float64) float64 {
+	return boundMinMax(current+mutateNormMax(magnitudeNorm, magnitudeMax), min, max)
+}
+
 //TODO: Should be in cell.go?
 func reproduce(cell *Cell) {
 	if cell.Energy < REPRODUCE_COST || cell.Energy < cell.EnergySpentOnReproducing {
@@ -350,78 +373,83 @@ func reproduce(cell *Cell) {
 		if !NextMoment.IsOccupied(xTry, yTry) {
 			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Making baby from %d, %d -> %d, %d\n", cell.ID, cell.X, cell.Y, xTry, yTry)
 
-			var rand0To99 = rand.Intn(100)
 			var babyCell = CellPool.Borrow()
 			babyCell.Energy = cell.EnergySpentOnReproducing - REPRODUCE_COST
 			//TODO: This should be a function, probably needs locking if parallelized
 			babyCell.ID = IDCounter
 			IDCounter++
 			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d born with %f energy\n", babyCell.ID, babyCell.Energy)
-			babyCell.EnergyReproduceThreshold = cell.EnergyReproduceThreshold + float64(rand.Intn(7)-3)
 			babyCell.X = xTry
 			babyCell.Y = yTry
 			babyCell.SpeciesID = cell.SpeciesID
 			babyCell.SpeciesColor = cell.SpeciesColor
-
 			babyCell.TimeLeftToWait = 0
-			if rand0To99 < 10 {
-				babyCell.ClockRate = int(math.Max(1.0, float64(cell.ClockRate+rand.Intn(17)-8)))
-			} else if rand0To99 < 80 {
-				babyCell.ClockRate = int(math.Max(1.0, float64(cell.ClockRate+rand.Intn(3)-1)))
-			} else {
-				babyCell.ClockRate = cell.ClockRate
-			}
-			//TODO: Better way to do this
-
-			var rand0To99_2 = rand.Intn(100)
-			if rand0To99_2 == 0 {
-				//legless gets legs
-				babyCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST
-				babyCell.MoveChance = float64(rand.Intn(40))
-			} else if rand0To99_2 == 1 {
-				//legged goes legless
-				babyCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
-				babyCell.MoveChance = 0.0
-			} else {
-				//mutate like normal
-				babyCell.GrowLegsAt = math.Max(GROWLEGS_COST, float64(cell.GrowLegsAt+float64(rand.Intn(7)-3)))
-				babyCell.MoveChance = math.Max(0.0, float64(cell.MoveChance+float64(rand.Intn(7)-3)))
-			}
-
-			babyCell.PercentChanceWait = int(math.Max(0.0, float64(cell.PercentChanceWait+rand.Intn(7)-3)))
-
 			babyCell.Age = 0
 			babyCell.Canopy = false
-			babyCell.GrowCanopyAt = math.Max(GROWCANOPY_COST, cell.GrowCanopyAt+float64(rand.Intn(7)-3))
-			//TODO: Turn mutation back on when things aren't jacked up
-			babyCell.GrowHeightAt = cell.GrowHeightAt //math.Max(GROWHEIGHT_COST, cell.GrowHeightAt+float64(rand.Intn(9)-5))
+			babyCell.Height = 0
+			babyCell.Legs = false
 
-			babyCell.X_originalGrowHeightAt = cell.X_originalGrowHeightAt
+			//fmt.Println("MAKING BABY!!!!!!!!!!")
+
+			//var rand0To99 = rand.Intn(100)
+			//if rand0To99 < 10 {
+			//	babyCell.ClockRate = int(math.Max(1.0, float64(cell.ClockRate+rand.Intn(17)-8)))
+			//} else if rand0To99 < 80 {
+			//	babyCell.ClockRate = int(math.Max(1.0, float64(cell.ClockRate+rand.Intn(3)-1)))
+			//} else {
+			//	babyCell.ClockRate = cell.ClockRate
+			//}
+			//TODO: Better way to do this
+
+			babyCell.ClockRate = int(mutateMinMaxInThisRange(float64(cell.ClockRate), 8.0, 50.0, 1.0, 1000.0))
+			babyCell.EnergySpentOnReproducing = mutateMinMaxInThisRange(cell.EnergySpentOnReproducing, 8.0, 1000.0, REPRODUCE_COST, 2000.0)
+			babyCell.EnergyReproduceThreshold = mutateMinMaxInThisRange(cell.EnergyReproduceThreshold, 8.0, 1000.0, babyCell.EnergySpentOnReproducing, 2000.0)
+			babyCell.GrowCanopyAt = mutateMinMaxInThisRange(cell.GrowCanopyAt, 8.0, 1000.0, GROWCANOPY_COST, 2000.0)
+			babyCell.GrowHeightAt = mutateMinMaxInThisRange(cell.GrowHeightAt, 8.0, 1000.0, GROWHEIGHT_COST, 2000.0) //math.Max(GROWHEIGHT_COST, cell.GrowHeightAt+float64(rand.Intn(9)-5))
+			babyCell.GrowLegsAt = mutateMinMaxInThisRange(cell.GrowLegsAt, 8.0, 1000.0, GROWLEGS_COST, 2000.0)
+			babyCell.MoveChance = mutateMinMaxInThisRange(cell.MoveChance, 6.0, 100.0, 0, 100.0)
+			babyCell.PercentChanceWait = int(mutateMinMaxInThisRange(float64(cell.PercentChanceWait), 6.0, 100.0, 0, 100.0))
+
+			//var rand0To99_2 = rand.Intn(100)
+			//if rand0To99_2 == 0 {
+			//	//legless gets legs
+			//	babyCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST
+			//	babyCell.MoveChance = float64(rand.Intn(40))
+			//} else if rand0To99_2 == 1 {
+			//legged goes legless
+			//	babyCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
+			//	babyCell.MoveChance = 0.0
+			//} else {
+			//mutate like normal
+			//	babyCell.GrowLegsAt = math.Max(GROWLEGS_COST, float64(cell.GrowLegsAt+float64(rand.Intn(7)-3)))
+			//	babyCell.MoveChance = math.Max(0.0, float64(cell.MoveChance+float64(rand.Intn(7)-3)))
+			//}
+
+			//babyCell.PercentChanceWait = int(math.Max(0.0, float64(cell.PercentChanceWait+rand.Intn(7)-3)))
+			babyCell.X_originalClockRate = cell.X_originalClockRate
 			babyCell.X_originalEnergyReproduceThreshold = cell.X_originalEnergyReproduceThreshold
 			babyCell.X_originalEnergySpentOnReproducing = cell.X_originalEnergySpentOnReproducing
 			babyCell.X_originalGrowCanopyAt = cell.X_originalGrowCanopyAt
-			babyCell.X_originalPercentChanceWait = cell.X_originalPercentChanceWait
-			babyCell.X_originalClockRate = cell.X_originalClockRate
+			babyCell.X_originalGrowHeightAt = cell.X_originalGrowHeightAt
 			babyCell.X_originalGrowLegsAt = cell.X_originalGrowLegsAt
 			babyCell.X_originalMoveChance = cell.X_originalMoveChance
-
-			babyCell.EnergySpentOnReproducing = math.Min(babyCell.EnergyReproduceThreshold, cell.EnergySpentOnReproducing+float64(rand.Intn(7)-3))
+			babyCell.X_originalPercentChanceWait = cell.X_originalPercentChanceWait
 
 			//TODO: WTF this shit is hella bugged in some mysterious way
-			if hasSignificantGeneticDivergence(babyCell) {
+			if HasSignificantGeneticDivergence(babyCell) {
 				//TODO: This should probably be a function
 				babyCell.SpeciesID = SpeciesIDCounter
 				SpeciesIDCounter++
 				babyCell.SpeciesColor = getNextColor()
 
-				babyCell.X_originalGrowHeightAt = babyCell.GrowHeightAt
+				babyCell.X_originalClockRate = babyCell.ClockRate
+				babyCell.X_originalEnergySpentOnReproducing = babyCell.EnergySpentOnReproducing
 				babyCell.X_originalEnergyReproduceThreshold = babyCell.EnergyReproduceThreshold
 				babyCell.X_originalGrowCanopyAt = babyCell.GrowCanopyAt
-				babyCell.X_originalEnergySpentOnReproducing = babyCell.EnergySpentOnReproducing
-				babyCell.X_originalPercentChanceWait = babyCell.PercentChanceWait
-				babyCell.X_originalClockRate = babyCell.ClockRate
+				babyCell.X_originalGrowHeightAt = babyCell.GrowHeightAt
 				babyCell.X_originalGrowLegsAt = babyCell.GrowLegsAt
 				babyCell.X_originalMoveChance = babyCell.MoveChance
+				babyCell.X_originalPercentChanceWait = babyCell.PercentChanceWait
 
 				Log(LOGTYPE_SPECIALEVENT, "Cell at %d, %d "+babyCell.SpeciesColor.StartSequence+"x"+babyCell.SpeciesColor.EndSequence+" is the first of a new species!\n", xTry, yTry)
 				Log(LOGTYPE_SPECIALEVENT, "orig reprod threshold: %f, new reprod threshold: %f\n", cell.X_originalEnergyReproduceThreshold, babyCell.X_originalEnergyReproduceThreshold)
@@ -438,7 +466,7 @@ func reproduce(cell *Cell) {
 	//	unlockYRangeInclusive(cell.Y-1, cell.Y+1, "reproduce")
 }
 
-func hasSignificantGeneticDivergence(cell *Cell) bool {
+func xxxx_hasSignificantGeneticDivergence(cell *Cell) bool {
 	//TODO: took canopy out because something is jacked up about it. Need to debug and put back in
 	//var GrowCanopyAtDiff = 0.0
 	//if cell.GrowCanopyAt != 0.0 {
@@ -517,23 +545,24 @@ func spontaneouslyGenerateCell() {
 			newCell.ID = IDCounter
 			IDCounter++
 			SpeciesIDCounter++
+			fmt.Println("making that species spontaneously!")
 			newCell.SpeciesColor = getNextColor()
 			newCell.Energy = float64(rand.Intn(100))
 			newCell.TimeLeftToWait = 0
 
-			newCell.ClockRate = rand.Intn(50) + 1
-			newCell.PercentChanceWait = rand.Intn(40)
+			newCell.ClockRate = rand.Intn(400) + 1
+			newCell.PercentChanceWait = rand.Intn(90)
 
-			newCell.EnergySpentOnReproducing = REPRODUCE_COST + float64(rand.Intn(400))
-			newCell.EnergyReproduceThreshold = newCell.EnergySpentOnReproducing + float64(rand.Intn(400))
+			newCell.EnergySpentOnReproducing = REPRODUCE_COST + float64(rand.Intn(1500))
+			newCell.EnergyReproduceThreshold = newCell.EnergySpentOnReproducing + float64(rand.Intn(1500))
 			newCell.Canopy = false
-			newCell.GrowCanopyAt = float64(rand.Intn(400)) + GROWCANOPY_COST
-			newCell.GrowHeightAt = float64(rand.Intn(400)) + GROWHEIGHT_COST
+			newCell.GrowCanopyAt = float64(rand.Intn(1500)) + GROWCANOPY_COST
+			newCell.GrowHeightAt = float64(rand.Intn(1500)) + GROWHEIGHT_COST
 			if rand.Intn(100) < 50 {
-				newCell.GrowLegsAt = float64(rand.Intn(400)) + GROWLEGS_COST
-				newCell.MoveChance = float64(rand.Intn(40))
+				newCell.GrowLegsAt = float64(rand.Intn(1500)) + GROWLEGS_COST
+				newCell.MoveChance = float64(rand.Intn(90))
 			} else {
-				newCell.GrowLegsAt = float64(rand.Intn(400)) + GROWLEGS_COST + 1000
+				newCell.GrowLegsAt = float64(rand.Intn(1500)) + GROWLEGS_COST
 				newCell.MoveChance = 0.0
 			}
 
@@ -608,7 +637,7 @@ func Round(val float64, roundOn float64, places int) (newVal float64) {
 	return
 }
 
-const SHINE_FREQUENCY = 1
+const SHINE_FREQUENCY = 5
 
 func shineOnAllCells() {
 	if momentNum%SHINE_FREQUENCY == 0 {
@@ -619,15 +648,15 @@ func shineOnAllCells() {
 		var isDayTime = momentNum%100 <= 50
 		var wg = &sync.WaitGroup{}
 		for yi := range CurrentMoment.CellsSpatialIndex {
-			//wg.Add(1)
-			shineThisRow(yi, isDayTime, wg)
+			wg.Add(1)
+			go shineThisRow(yi, isDayTime, wg)
 
 			//Log(LOGTYPE_HIGHFREQUENCY, "Shiner touching on %d, %d \n", xi, yi)
 			//unlockYXRangeInclusive(yi-1, yi+1, xi-1, xi+1, "shiner")
 			//TODO: May have placed lock/unlocks here incorrectly
 		}
 		Log(LOGTYPE_MAINLOOPSINGLE, "Ending shine\n")
-		//wg.Wait()
+		wg.Wait()
 	}
 
 }
@@ -648,6 +677,7 @@ func shineThisRow(yi int, isDayTime bool, wg *sync.WaitGroup) {
 			//No sun at night
 		}
 	}
+	wg.Done()
 }
 
 const SURROUNDINGS_SIZE = 9

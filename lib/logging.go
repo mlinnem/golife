@@ -30,33 +30,33 @@ func containsInt(ints []int, theInt int) bool {
 	return false
 }
 
-func hasSignificantGeneticDivergence(cell *Cell) bool {
-	var energyReproduceThresholdDiff = math.Abs(cell.X_originalEnergyReproduceThreshold - cell.EnergyReproduceThreshold)
+func HasSignificantGeneticDivergence(cell *Cell) bool {
 	//TODO: took canopy out because something is jacked up about it. Need to debug and put back in
 	//var GrowCanopyAtDiff = 0.0
 	//if cell.GrowCanopyAt != 0.0 {
 	//	GrowCanopyAtDiff = math.Abs(cell.X_OriginalGrowCanopyAt - cell.GrowCanopyAt)
 	//}
+	//TODO: Delete this crap
 
-	var GrowHeightAtDiff = math.Abs(float64(cell.X_originalGrowHeightAt) - float64(cell.GrowHeightAt))
-	//	var MoveChanceDiff = math.Abs(float64(cell.X_originalMoveChance) - float64(cell.MoveChance))
-	//var GrowLegsAtDiff = math.Abs(float64(cell.X_originalGrowLegsAt) - float64(cell.GrowCanopyAt))
-	var GrowCanopyAtDiff = math.Abs(float64(cell.X_originalGrowCanopyAt) - float64(cell.GrowCanopyAt))
-	var ClockRateDiff = math.Abs(float64(cell.X_originalClockRate) - float64(cell.ClockRate))
-	var EnergySpentOnReproducingDiff = math.Abs(cell.X_originalEnergySpentOnReproducing - cell.EnergySpentOnReproducing)
-	//	var PercentChanceWaitDiff = math.Abs(float64(cell.X_originalPercentChanceWait) - float64(cell.PercentChanceWait))
-	//vfar totalDiff = GrowCanopyAtDiff + ClockRateDiff + energyReproduceThresholdDiff + EnergySpentOnReproducingDiff + PercentChanceWaitDiff
-	var totalDiff = 0.0
-	//if totalDiff > SPECIES_DIVERGENCE_THRESHOLD {
-	//	Log("X_original energy threshold: %f\n", cell._X_originalEnergyReproduceThreshold)
-	//fmt.Printf("current energy threshold: %f\n", cell.EnergyReproduceThreshold)
-	fmt.Printf("totalDiff: %f\n", totalDiff)
-	fmt.Printf("energy spent reprod diff: %f\n", EnergySpentOnReproducingDiff)
-	fmt.Printf("grew canopy at diff: %f\n", GrowCanopyAtDiff)
-	fmt.Printf("energy threshold diff: %f\n", energyReproduceThresholdDiff)
-	fmt.Printf("ClockRateDiff: %f\n", ClockRateDiff)
-	fmt.Printf("GrowHeightAtDiff: %f\n", GrowHeightAtDiff)
-	fmt.Printf("TotalDiff: %f\n", totalDiff)
+	var ClockRateDiff = math.Abs(float64(cell.X_originalClockRate)-float64(cell.ClockRate)) / 200
+	var EnergyReproduceThresholdDiff = math.Abs(cell.X_originalEnergyReproduceThreshold-cell.EnergyReproduceThreshold) / 1000
+	var EnergySpentOnReproducingDiff = math.Abs(cell.X_originalEnergySpentOnReproducing-cell.EnergySpentOnReproducing) / 1000
+	var GrowCanopyAtDiff = math.Abs(float64(cell.X_originalGrowCanopyAt)-float64(cell.GrowCanopyAt)) / 1000
+	var GrowHeightAtDiff = math.Abs(float64(cell.X_originalGrowHeightAt)-float64(cell.GrowHeightAt)) / 1000
+	var GrowLegsAtDiff = math.Abs(float64(cell.X_originalGrowLegsAt)-float64(cell.GrowLegsAt)) / 1000
+	var MoveChanceDiff = math.Abs(float64(cell.X_originalMoveChance)-float64(cell.MoveChance)) / 1000 //reduced importance
+	var PercentChanceWaitDiff = math.Abs(float64(cell.X_originalPercentChanceWait)-float64(cell.PercentChanceWait)) / 100
+	var totalDiff = MoveChanceDiff + GrowLegsAtDiff + GrowHeightAtDiff + GrowCanopyAtDiff + ClockRateDiff + EnergyReproduceThresholdDiff + EnergySpentOnReproducingDiff + PercentChanceWaitDiff
+	//fmt.Printf("totalDiff: %f\n", totalDiff)
+	//fmt.Printf("\tClock rate diff: %f\n", ClockRateDiff)
+	//fmt.Printf("\tenergy reproducing threshold diff: %f\n", EnergyReproduceThresholdDiff)
+	//fmt.Printf("\tenergy spent reprod diff: %f\n", EnergySpentOnReproducingDiff)
+	//fmt.Printf("\tgrew canopy at diff: %f\n", GrowCanopyAtDiff)
+	//fmt.Printf("\tGrowHeightAtDiff: %f\n", GrowHeightAtDiff)
+	//fmt.Printf("\tGrowLegsAtDiff: %f\n", GrowLegsAtDiff)
+	//fmt.Printf("\tMoveChanceDiff: %f\n", MoveChanceDiff)
+	//fmt.Printf("\tPercentChanceWaitDiff: %f\n", GrowLegsAtDiff)
+	//fmt.Printf("\tTotalDiff: %f\n", totalDiff)
 	//}
 	return totalDiff > SPECIES_DIVERGENCE_THRESHOLD
 }
@@ -213,7 +213,7 @@ func PrintSpeciesReport(moment *Moment, topXSpecies int) {
 		var specimen *Cell = SpeciesIDToSpecimen[SpeciesID]
 
 		//TODO: Need to report species number right. Dot for now
-		Log(LOGTYPE_SPECIESREPORT, "Species %s\t "+specimen.SpeciesColor.StartSequence+"x"+specimen.SpeciesColor.EndSequence+"\t"+"\t"+"Count: %d\t reprod threshold: %6.1f\t reprod energy: %6.1f\t gcanopy thresh: %6.1f\t wait percent: %d\t clock rate %d\t gleg thresh: %6.1f\n, moveChance: %6.1f\t, growHeightAt %6.1f\n",
+		Log(LOGTYPE_SPECIESREPORT, "Species %s\t "+specimen.SpeciesColor.StartSequence+"x"+specimen.SpeciesColor.EndSequence+"\t"+"\t"+"Count: %d\t reprod threshold: %6.1f\t reprod energy: %6.1f\t gcanopy thresh: %6.1f\t wait percent: %d\t clock rate %d\t gleg thresh: %6.1f\t, moveChance: %6.1f\t, growHeightAt %6.1f\n",
 			".", count, specimen.X_originalEnergyReproduceThreshold, specimen.X_originalEnergySpentOnReproducing, specimen.X_originalGrowCanopyAt, specimen.X_originalPercentChanceWait, specimen.X_originalClockRate, specimen.X_originalGrowLegsAt, specimen.X_originalMoveChance, specimen.X_originalGrowHeightAt)
 	}
 	Log(LOGTYPE_SPECIESREPORT, "\n")
