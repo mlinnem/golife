@@ -8,30 +8,35 @@ import (
 //---UKEEEP-------------
 const CELL_LIFESPAN = 300
 
-const BASE_CELL_UPKEEP = 1.0
+const BASIC_BRAIN_UPKEEP = .25
+const CHLOROPLAST_UPKEEP = .75
 const CANOPY_UPKEEP = 3.0
 const LEGS_UPKEEP = .25
 const HEIGHT_UPKEEP = .25
 
 //---ACTION_COSTS-------
 const MOVE_COST = 5
-const THINKING_COST = 3.0
+const THINKING_COST = 10.0
 const REPRODUCE_COST = 30
+
+const GROWCHLOROPLASTS_COST = 30
 const GROWCANOPY_COST = 120
 const GROWLEGS_COST = 45
-const GROWHEIGHT_COST = 150
+const GROWHEIGHT_COST = 100
 
 //TODO: Make it easy to add a field and have it appear in all the right places Re: copying and whatnot
 type Cell struct {
 	Energy                             float64
 	X                                  int
 	Y                                  int
-	Height                             int
 	ID                                 int
 	TimeLeftToWait                     int
 	ClockRate                          int
 	Canopy                             bool
 	Legs                               bool
+	Chloroplasts                       bool
+	Height                             int
+	GrowChloroplastsAt                 float64
 	GrowCanopyAt                       float64
 	GrowLegsAt                         float64
 	GrowHeightAt                       float64
@@ -42,6 +47,7 @@ type Cell struct {
 	PercentChanceWait                  int     //out of 100
 	MoveChance                         float64 //out of 100
 	_secretID                          int
+	X_originalGrowChloroplastsAt       float64
 	X_originalGrowHeightAt             float64
 	X_originalGrowCanopyAt             float64
 	X_originalPercentChanceWait        int
@@ -80,7 +86,10 @@ func (cell *Cell) IncreaseEnergy(amt float64) {
 
 //TODO: Why dpes height trigger flip out on species, and why is height so adaptive even without canapies.
 func (cell *Cell) Maintain() {
-	var totalUpkeep = BASE_CELL_UPKEEP
+	var totalUpkeep = BASIC_BRAIN_UPKEEP
+	if cell.Chloroplasts {
+		totalUpkeep += CHLOROPLAST_UPKEEP
+	}
 	if cell.Legs {
 		totalUpkeep += LEGS_UPKEEP
 	}
@@ -135,6 +144,19 @@ func (cell *Cell) GrowLegs() {
 		//LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Growing legs\n", cell.ID)
 		cell.NextMomentSelf.Legs = true
 		cell.DecreaseEnergy(GROWLEGS_COST)
+	}
+}
+
+func (cell *Cell) GrowChloroplasts() {
+	if cell.isDead() {
+		return
+	} else if !cell.IsReadyToGrowChloroplasts() {
+		cell.DecreaseEnergy(GROWCHLOROPLASTS_COST)
+		return
+	} else {
+		//LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Growing height\n", cell.ID)
+		cell.NextMomentSelf.Chloroplasts = true
+		cell.DecreaseEnergy(GROWCHLOROPLASTS_COST)
 	}
 }
 
@@ -197,7 +219,11 @@ foundSpot:
 }
 
 func (cell *Cell) IsReadyToGrowCanopy() bool {
-	return cell.Canopy == false && cell.Energy > cell.GrowCanopyAt
+	return cell.Canopy == false && cell.Chloroplasts == true && cell.Energy > cell.GrowCanopyAt
+}
+
+func (cell *Cell) IsReadyToGrowChloroplasts() bool {
+	return cell.Chloroplasts == false && cell.Energy > cell.GrowChloroplastsAt
 }
 
 func (cell *Cell) IsReadyToGrowHeight() bool {

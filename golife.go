@@ -104,6 +104,7 @@ func main() {
 	var t1all = time.Now()
 	for momentNum = 0; momentNum < MAX_MOMENTS; momentNum++ {
 		CurrentMoment.MomentNum = momentNum
+
 		NextMoment.MomentNum = momentNum + 1
 		if momentNum%PRINTGRID_EVERY_N_TURNS == 0 {
 			PrintGrid(CurrentMoment)
@@ -193,12 +194,13 @@ type CellAction struct {
 }
 
 const (
-	cellaction_reproduce  = iota
-	cellaction_growcanopy = iota
-	cellaction_growheight = iota
-	cellaction_wait       = iota
-	cellaction_growlegs   = iota
-	cellaction_moverandom = iota
+	cellaction_growcanopy       = iota
+	cellaction_growheight       = iota
+	cellaction_growlegs         = iota
+	cellaction_growchloroplasts = iota
+	cellaction_wait             = iota
+	cellaction_reproduce        = iota
+	cellaction_moverandom       = iota
 )
 
 func getCellActionName(cellActionType int) string {
@@ -215,6 +217,8 @@ func getCellActionName(cellActionType int) string {
 		return "Grow Legs"
 	case cellaction_moverandom:
 		return "Move Random"
+	case cellaction_growchloroplasts:
+		return "Grow Chloroplasts"
 	default:
 		return "NO_KNOWN_ACTION_NAME"
 	}
@@ -235,6 +239,8 @@ func cellActionDecider(wg *sync.WaitGroup) {
 					cellAction = &CellAction{cell, cellaction_growcanopy}
 				} else if cell.IsReadyToGrowLegs() {
 					cellAction = &CellAction{cell, cellaction_growlegs}
+				} else if cell.IsReadyToGrowChloroplasts() {
+					cellAction = &CellAction{cell, cellaction_growchloroplasts}
 				} else if cell.IsTimeToReproduce() {
 					cellAction = &CellAction{cell, cellaction_reproduce}
 				} else if cell.WantsToAndCanMove() {
@@ -276,6 +282,8 @@ func cellActionExecuter(wg *sync.WaitGroup) {
 			cell.GrowCanopy()
 		case cellaction_growheight:
 			cell.GrowHeight()
+		case cellaction_growchloroplasts:
+			cell.GrowChloroplasts()
 		case cellaction_wait:
 			cell.Wait()
 		case cellaction_growlegs:
@@ -388,6 +396,7 @@ func reproduce(cell *Cell) {
 			babyCell.Canopy = false
 			babyCell.Height = 0
 			babyCell.Legs = false
+			babyCell.Chloroplasts = false
 
 			//fmt.Println("MAKING BABY!!!!!!!!!!")
 
@@ -404,6 +413,7 @@ func reproduce(cell *Cell) {
 			babyCell.ClockRate = int(mutateMinMaxInThisRange(float64(cell.ClockRate), 8.0, 50.0, 1.0, 1000.0))
 			babyCell.EnergySpentOnReproducing = mutateMinMaxInThisRange(cell.EnergySpentOnReproducing, 8.0, 1000.0, REPRODUCE_COST, 2000.0)
 			babyCell.EnergyReproduceThreshold = mutateMinMaxInThisRange(cell.EnergyReproduceThreshold, 8.0, 1000.0, babyCell.EnergySpentOnReproducing, 2000.0)
+			babyCell.GrowChloroplastsAt = mutateMinMaxInThisRange(cell.GrowChloroplastsAt, 8.0, 1000.0, GROWCHLOROPLASTS_COST, 1000.0)
 			babyCell.GrowCanopyAt = mutateMinMaxInThisRange(cell.GrowCanopyAt, 8.0, 1000.0, GROWCANOPY_COST, 2000.0)
 			babyCell.GrowHeightAt = mutateMinMaxInThisRange(cell.GrowHeightAt, 8.0, 1000.0, GROWHEIGHT_COST, 2000.0) //math.Max(GROWHEIGHT_COST, cell.GrowHeightAt+float64(rand.Intn(9)-5))
 			babyCell.GrowLegsAt = mutateMinMaxInThisRange(cell.GrowLegsAt, 8.0, 1000.0, GROWLEGS_COST, 2000.0)
@@ -426,6 +436,7 @@ func reproduce(cell *Cell) {
 			//}
 
 			//babyCell.PercentChanceWait = int(math.Max(0.0, float64(cell.PercentChanceWait+rand.Intn(7)-3)))
+			babyCell.X_originalGrowChloroplastsAt = cell.X_originalGrowChloroplastsAt
 			babyCell.X_originalClockRate = cell.X_originalClockRate
 			babyCell.X_originalEnergyReproduceThreshold = cell.X_originalEnergyReproduceThreshold
 			babyCell.X_originalEnergySpentOnReproducing = cell.X_originalEnergySpentOnReproducing
@@ -464,35 +475,6 @@ func reproduce(cell *Cell) {
 		}
 	}
 	//	unlockYRangeInclusive(cell.Y-1, cell.Y+1, "reproduce")
-}
-
-func xxxx_hasSignificantGeneticDivergence(cell *Cell) bool {
-	//TODO: took canopy out because something is jacked up about it. Need to debug and put back in
-	//var GrowCanopyAtDiff = 0.0
-	//if cell.GrowCanopyAt != 0.0 {
-	//	GrowCanopyAtDiff = math.Abs(cell.X_OriginalGrowCanopyAt - cell.GrowCanopyAt)
-	//}
-
-	var energyReproduceThresholdDiff = math.Abs(cell.X_originalEnergyReproduceThreshold - cell.EnergyReproduceThreshold)
-	//var MoveChanceDiff = math.Abs(float64(cell._X_originalMoveChance) - float64(cell.MoveChance))
-	//var GrowLegsAtDiff = math.Abs(float64(cell.X_originalGrowLegsAt) - float64(cell.GrowCanopyAt))
-	var GrowHeightAtDiff = math.Abs(float64(cell.X_originalGrowHeightAt) - float64(cell.GrowHeightAt))
-	var GrowCanopyAtDiff = math.Abs(float64(cell.X_originalGrowCanopyAt) - float64(cell.GrowCanopyAt))
-	var ClockRateDiff = math.Abs(float64(cell.X_originalClockRate) - float64(cell.ClockRate))
-	var EnergySpentOnReproducingDiff = math.Abs(cell.X_originalEnergySpentOnReproducing - cell.EnergySpentOnReproducing)
-	var PercentChanceWaitDiff = math.Abs(float64(cell.X_originalPercentChanceWait) - float64(cell.PercentChanceWait))
-	//	var totalDiff = GrowHeightAtDiff + GrowCanopyAtDiff + ClockRateDiff + energyReproduceThresholdDiff + EnergySpentOnReproducingDiff + PercentChanceWaitDiff
-	var totalDiff = GrowHeightAtDiff + GrowCanopyAtDiff + ClockRateDiff + energyReproduceThresholdDiff + EnergySpentOnReproducingDiff + PercentChanceWaitDiff
-	//var totalDiff = GrowHeightAtDiff
-	//if totalDiff > SPECIES_DIVERGENCE_THRESHOLD {
-	//	Log("X_original energy threshold: %f\n", cell._X_originalEnergyReproduceThreshold)
-	//	fmt.Printf("current energy threshold: %f\n", cell.EnergyReproduceThreshold)
-	//	fmt.Printf("totalDiff: %f\n", totalDiff)
-	//	fmt.Printf("energy spent reprod diff: %f\n", EnergySpentOnReproducingDiff)
-	//	fmt.Printf("grew canopy at diff: %f\n", GrowCanopyAtDiff)
-	//	fmt.Printf("energy threshold diff: %f\n", energyReproduceThresholdDiff)
-	//}
-	return totalDiff > SPECIES_DIVERGENCE_THRESHOLD
 }
 
 func maintainAllCells() {
@@ -549,6 +531,7 @@ func spontaneouslyGenerateCell() {
 			newCell.SpeciesColor = getNextColor()
 			newCell.Energy = float64(rand.Intn(100))
 			newCell.TimeLeftToWait = 0
+			newCell.Chloroplasts = false
 
 			newCell.ClockRate = rand.Intn(400) + 1
 			newCell.PercentChanceWait = rand.Intn(90)
@@ -556,6 +539,7 @@ func spontaneouslyGenerateCell() {
 			newCell.EnergySpentOnReproducing = REPRODUCE_COST + float64(rand.Intn(1500))
 			newCell.EnergyReproduceThreshold = newCell.EnergySpentOnReproducing + float64(rand.Intn(1500))
 			newCell.Canopy = false
+			newCell.GrowChloroplastsAt = float64(rand.Intn(1500)) + GROWCHLOROPLASTS_COST
 			newCell.GrowCanopyAt = float64(rand.Intn(1500)) + GROWCANOPY_COST
 			newCell.GrowHeightAt = float64(rand.Intn(1500)) + GROWHEIGHT_COST
 			if rand.Intn(100) < 50 {
@@ -566,6 +550,7 @@ func spontaneouslyGenerateCell() {
 				newCell.MoveChance = 0.0
 			}
 
+			newCell.X_originalGrowChloroplastsAt = newCell.GrowChloroplastsAt
 			newCell.X_originalGrowHeightAt = newCell.GrowHeightAt
 			newCell.X_originalMoveChance = newCell.MoveChance
 			newCell.X_originalGrowLegsAt = newCell.GrowLegsAt
@@ -690,14 +675,14 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 	var cell = CurrentMoment.CellsSpatialIndex[y][x]
 
 	//If we have a cell that is tall...
-	if cell != nil && cell.Height == 1 {
+	if cell != nil && cell.Chloroplasts == true && cell.Height == 1 {
 		//give all energy to that cell
 		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Shine @ height 1\n", cell.ID)
 
 		cell.IncreaseEnergy(shineAmountForThisSquare)
 	} else {
 		//otherwise, distribute energy among the cell (if it exists), and surrounding cells that have canopies
-		if cell != nil {
+		if cell != nil && cell.Chloroplasts == true {
 			surroundingCellsWithCanopiesAndMe[0] = cell
 			numSurrounders++
 		}

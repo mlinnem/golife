@@ -12,7 +12,26 @@ type Moment struct {
 	MomentNum         int
 	Cells             []*Cell
 	CellsSpatialIndex [GRID_HEIGHT][GRID_WIDTH]*Cell
+	//	atmosphericMaterial float64
 }
+
+//func (moment *Moment) SetTotalAtmosphericMaterial(amt float64) {
+//	moment.atmosphericMaterial = amt
+//}
+
+//func (moment *Moment) GetTotalAtmosphericMaterial(amt float64) float64 {
+//	return moment.atmosphericMaterial
+//}
+
+//func (moment *Moment) ReleaseMaterialToAtmosphere(amt float64) {
+//	moment.atmosphericMaterial += amt
+//}
+
+//TODO: Kind of weird to always return exactly what is available
+//func (moment *Moment) TakeMaterialFromAtmosphere(amt float64) float64 {
+//	moment.atmosphericMaterial -= amt
+//	return amt
+//}
 
 //TODO: Maybe do this in tandem with goroutine in future
 func (moment *Moment) Clean(wg *sync.WaitGroup) {

@@ -55,17 +55,21 @@ func Copy(oldCell *Cell) *Cell {
 	newCell.Height = oldCell.Height
 	newCell.SpeciesID = oldCell.SpeciesID
 	newCell.TimeLeftToWait = oldCell.TimeLeftToWait
+	newCell.Chloroplasts = oldCell.Chloroplasts
 	newCell.GrowHeightAt = oldCell.GrowHeightAt
 	newCell.PercentChanceWait = oldCell.PercentChanceWait
 	newCell.SpeciesColor = oldCell.SpeciesColor
 	newCell.EnergySpentOnReproducing = oldCell.EnergySpentOnReproducing
 	newCell.Canopy = oldCell.Canopy
 	newCell.ClockRate = oldCell.ClockRate
+	newCell.GrowChloroplastsAt = oldCell.GrowChloroplastsAt
 	newCell.GrowCanopyAt = oldCell.GrowCanopyAt
 	newCell.EnergyReproduceThreshold = oldCell.EnergyReproduceThreshold
 	newCell.Legs = oldCell.Legs
 	newCell.MoveChance = oldCell.MoveChance
 	newCell.GrowLegsAt = oldCell.GrowLegsAt
+
+	newCell.X_originalGrowChloroplastsAt = oldCell.X_originalGrowChloroplastsAt
 	newCell.X_originalGrowHeightAt = oldCell.X_originalGrowHeightAt
 	newCell.X_originalMoveChance = oldCell.X_originalMoveChance
 	newCell.X_originalGrowLegsAt = oldCell.X_originalGrowLegsAt
