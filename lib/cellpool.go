@@ -26,6 +26,7 @@ func (oldCell *Cell) ContinueOn() *Cell {
 	return continuedCell
 }
 
+//TODO: Is this still used?
 func RemoveCellsFromMoment(moment *Moment, cellsToDelete []*Cell) {
 	data := make([]*Cell, 0, len(moment.Cells)-len(cellsToDelete))
 loop:
@@ -33,7 +34,7 @@ loop:
 		for _, cellToDelete := range cellsToDelete {
 			if cellThatExists == cellToDelete {
 				CellPool.Return(cellToDelete)
-				moment.CellsSpatialIndex[cellToDelete.Y][cellToDelete.X] = nil
+				moment.CellsSpatialIndex[cellToDelete.Z][cellToDelete.Y][cellToDelete.X] = nil
 				continue loop
 			}
 		}

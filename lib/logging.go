@@ -16,7 +16,7 @@ func Log(logType int, message string, params ...interface{}) {
 }
 
 func LogIfTraced(cell *Cell, logType int, message string, params ...interface{}) {
-	if CELLEFFECT_ONLY_IF_TRACED == false || cell.ID == TracedCell.ID {
+	if (cell != nil && CELLEFFECT_ONLY_IF_TRACED == false) || (TracedCell != nil && cell.ID == TracedCell.ID) {
 		Log(logType, "TRACED: "+message, params...)
 	}
 }
@@ -88,21 +88,21 @@ func printCell(cell *Cell) {
 	}
 }
 
-func PrintGrid(moment *Moment) {
+func PrintGrid(moment *Moment, z int) {
 	if containsInt(LOGTYPES_ENABLED, LOGTYPE_PRINTGRID_GRID) {
 		Log(LOGTYPE_PRINTGRID_GRID, "\n")
-		for yi := range moment.CellsSpatialIndex {
-			for xi := range moment.CellsSpatialIndex[yi] {
-				var cell = moment.CellsSpatialIndex[yi][xi]
+		for yi := range moment.CellsSpatialIndex[z] {
+			for xi := range moment.CellsSpatialIndex[z][yi] {
+				var cell = moment.CellsSpatialIndex[z][yi][xi]
 				printCell(cell)
 			}
 			Log(LOGTYPE_PRINTGRID_GRID, "\n")
 		}
 	} else if containsInt(LOGTYPES_ENABLED, LOGTYPE_PRINTGRID_BIGGRID) {
 		Log(LOGTYPE_PRINTGRID_BIGGRID, "\n")
-		for yi := 0; yi < len(moment.CellsSpatialIndex); yi += BIGGRID_INCREMENT {
-			for xi := 0; xi < len(moment.CellsSpatialIndex[0]); xi += BIGGRID_INCREMENT {
-				var cell = moment.CellsSpatialIndex[yi][xi]
+		for yi := 0; yi < GRID_HEIGHT; yi += BIGGRID_INCREMENT {
+			for xi := 0; xi < GRID_WIDTH; xi += BIGGRID_INCREMENT {
+				var cell = moment.CellsSpatialIndex[z][yi][xi]
 				printCell(cell)
 			}
 			Log(LOGTYPE_PRINTGRID_BIGGRID, "\n")

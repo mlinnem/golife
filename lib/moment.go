@@ -11,7 +11,7 @@ var NextMoment *Moment
 type Moment struct {
 	MomentNum         int
 	Cells             []*Cell
-	CellsSpatialIndex [GRID_HEIGHT][GRID_WIDTH]*Cell
+	CellsSpatialIndex [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell
 	//	atmosphericMaterial float64
 }
 
@@ -45,7 +45,7 @@ func (moment *Moment) Clean(wg *sync.WaitGroup) {
 	//TODO: Put log back in when you can make log its own module thingie
 	//Log(LOGTYPE_MAINLOOPSINGLE, "You made it to right before allocating the big cell thing\n")
 	//TODO: Letting garbage collector take care of cleaning rather than manual for now
-	moment.CellsSpatialIndex = [GRID_HEIGHT][GRID_WIDTH]*Cell{}
+	moment.CellsSpatialIndex = [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell{}
 	// for yi := range moment.CellsSpatialIndex {
 	// 	//internalwg.Add(1)
 	// 	moment.CleanRow(yi)
@@ -55,18 +55,31 @@ func (moment *Moment) Clean(wg *sync.WaitGroup) {
 	//NextMomentLock.Unlock()
 }
 
-func (moment *Moment) CleanRow(yi int) {
-	for xi := range moment.CellsSpatialIndex[yi] {
-		moment.CellsSpatialIndex[yi][xi] = nil
+func (moment *Moment) AddCellToSpatialIndex(cell *Cell) {
+	for i := 0; i < cell.Height+1; i++ {
+		moment.CellsSpatialIndex[cell.Z+i][cell.Y][cell.X] = cell
+	}
+}
+
+func (moment *Moment) RemoveCellFromSpatialIndex(cell *Cell) {
+	for i := 0; i < cell.Height+1; i++ {
+		moment.CellsSpatialIndex[cell.Z+i][cell.Y][cell.X] = nil
+	}
+}
+
+func (moment *Moment) CleanRow(yi int, zi int) {
+	for xi := range moment.CellsSpatialIndex[zi][yi] {
+		moment.CellsSpatialIndex[zi][yi][xi] = nil
 	}
 	//wg.Done()
 }
 
-func (moment *Moment) IsOccupied(x int, y int) bool {
-	if moment.IsOutOfBounds(x, y) {
+func (moment *Moment) IsOccupied(x int, y int, z int) bool {
+	if moment.IsOutOfBounds(x, y, z) {
 		return true
 	}
-	return moment.CellsSpatialIndex[y][x] != nil
+	//TODO: Might want to just out and out make it 3D at some point
+	return moment.CellsSpatialIndex[z][y][x] != nil
 }
 
 func (moment *Moment) ReturnCellsToPool() {
@@ -76,19 +89,12 @@ func (moment *Moment) ReturnCellsToPool() {
 	}
 }
 
-func (moment *Moment) IsOutOfBounds(x int, y int) bool {
-	return x < 0 || x > GRID_WIDTH-1 || y < 0 || y > GRID_HEIGHT-1
+func (moment *Moment) IsOutOfBounds(x int, y int, z int) bool {
+	return x < 0 || x > GRID_WIDTH-1 || y < 0 || y > GRID_HEIGHT-1 || z < 0 || z > GRID_DEPTH-1
 }
 
-func (moment *Moment) isXOutOfBounds(x int) bool {
-	return x < 0 || x > GRID_WIDTH-1
-}
-
-func (moment *Moment) isYOutOfBounds(y int) bool {
-	return y < 0 || y > GRID_HEIGHT-1
-}
-
-func (moment *Moment) getSurroundingCells(x int, y int) []*Cell {
+//In the plane of z
+func (moment *Moment) getSurroundingCells(x int, y int, z int) []*Cell {
 	var surroundingCells []*Cell
 	surroundingCells = make([]*Cell, 0, 9)
 	for relativeX := -1; relativeX < 2; relativeX++ {
@@ -96,8 +102,8 @@ func (moment *Moment) getSurroundingCells(x int, y int) []*Cell {
 			var xTry = x + relativeX
 			var yTry = y + relativeY
 			//Inlined from !outofBounds and IsOccupied
-			if !(xTry < 0 || xTry > GRID_WIDTH-1 || yTry < 0 || yTry > GRID_HEIGHT-1) && moment.CellsSpatialIndex[y][x] != nil {
-				var cell = moment.CellsSpatialIndex[yTry][xTry]
+			if !(xTry < 0 || xTry > GRID_WIDTH-1 || yTry < 0 || yTry > GRID_HEIGHT-1 || z < 0 || z > GRID_DEPTH) && moment.CellsSpatialIndex[z][y][x] != nil {
+				var cell = moment.CellsSpatialIndex[z][yTry][xTry]
 				surroundingCells = append(surroundingCells, cell)
 			}
 		}

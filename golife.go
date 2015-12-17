@@ -46,7 +46,7 @@ func startPersistentThreads() {
 
 func transferLiveCellsToNextMoment() {
 	NextMoment.Cells = make([]*Cell, 0, len(CurrentMoment.Cells))
-	NextMoment.CellsSpatialIndex = [GRID_HEIGHT][GRID_WIDTH]*Cell{}
+	NextMoment.CellsSpatialIndex = [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell{}
 	for _, CurrentMomentCell := range CurrentMoment.Cells {
 
 		//This takes place of reaper function
@@ -54,7 +54,7 @@ func transferLiveCellsToNextMoment() {
 		if CurrentMomentCell.Energy > 0 {
 			var NextMomentCell = CurrentMomentCell.ContinueOn()
 			NextMoment.Cells = append(NextMoment.Cells, NextMomentCell)
-			NextMoment.CellsSpatialIndex[NextMomentCell.Y][NextMomentCell.X] = NextMomentCell
+			NextMoment.AddCellToSpatialIndex(NextMomentCell)
 		}
 	}
 	Log(LOGTYPE_MAINLOOPSINGLE, "Transferred cells over to next moment by default, same loc\n")
@@ -107,7 +107,7 @@ func main() {
 
 		NextMoment.MomentNum = momentNum + 1
 		if momentNum%PRINTGRID_EVERY_N_TURNS == 0 {
-			PrintGrid(CurrentMoment)
+			PrintGrid(CurrentMoment, 1)
 			PrintSpeciesReport(CurrentMoment, NUM_TOP_SPECIES_TO_PRINT)
 		}
 		var t1a = time.Now()
@@ -375,12 +375,12 @@ func reproduce(cell *Cell) {
 		return
 	}
 	//try all spots surrounding the cell
+	var z = 0
 	for _, direction := range GetSurroundingDirectionsInRandomOrder() {
 		var xTry = cell.X + direction.X
 		var yTry = cell.Y + direction.Y
-		if !NextMoment.IsOccupied(xTry, yTry) {
+		if !NextMoment.IsOccupied(xTry, yTry, z) {
 			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Making baby from %d, %d -> %d, %d\n", cell.ID, cell.X, cell.Y, xTry, yTry)
-
 			var babyCell = CellPool.Borrow()
 			babyCell.Energy = cell.EnergySpentOnReproducing - REPRODUCE_COST
 			//TODO: This should be a function, probably needs locking if parallelized
@@ -389,6 +389,7 @@ func reproduce(cell *Cell) {
 			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d born with %f energy\n", babyCell.ID, babyCell.Energy)
 			babyCell.X = xTry
 			babyCell.Y = yTry
+			babyCell.Z = cell.Z //TODO: Might want to revisit this later?
 			babyCell.SpeciesID = cell.SpeciesID
 			babyCell.SpeciesColor = cell.SpeciesColor
 			babyCell.TimeLeftToWait = 0
@@ -397,8 +398,6 @@ func reproduce(cell *Cell) {
 			babyCell.Height = 0
 			babyCell.Legs = false
 			babyCell.Chloroplasts = false
-
-			//fmt.Println("MAKING BABY!!!!!!!!!!")
 
 			//var rand0To99 = rand.Intn(100)
 			//if rand0To99 < 10 {
@@ -456,6 +455,7 @@ func reproduce(cell *Cell) {
 				babyCell.X_originalClockRate = babyCell.ClockRate
 				babyCell.X_originalEnergySpentOnReproducing = babyCell.EnergySpentOnReproducing
 				babyCell.X_originalEnergyReproduceThreshold = babyCell.EnergyReproduceThreshold
+				babyCell.X_originalGrowChloroplastsAt = babyCell.GrowChloroplastsAt
 				babyCell.X_originalGrowCanopyAt = babyCell.GrowCanopyAt
 				babyCell.X_originalGrowHeightAt = babyCell.GrowHeightAt
 				babyCell.X_originalGrowLegsAt = babyCell.GrowLegsAt
@@ -469,7 +469,7 @@ func reproduce(cell *Cell) {
 
 			}
 			NextMoment.Cells = append(NextMoment.Cells, babyCell)
-			NextMoment.CellsSpatialIndex[yTry][xTry] = babyCell
+			NextMoment.AddCellToSpatialIndex(babyCell)
 			cell.DecreaseEnergy(cell.EnergySpentOnReproducing)
 			return
 		}
@@ -489,21 +489,21 @@ func maintainAllCells() {
 //	lockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
 //}
 
-func lockYXRangeInclusive(startY int, endY int, startX int, endX int, who string) {
-	Log(LOGTYPE_DEBUGCONCURRENCY, "%s Trying to grab bulk lock\n", who)
-	bulkGrabLock.Lock()
-	Log(LOGTYPE_DEBUGCONCURRENCY, "%s Grabbed successfully\n", who)
-	for y := startY; y < endY+1; y++ {
-		for x := startX; x < endX+1; x++ {
-			if !NextMoment.IsOutOfBounds(x, y) {
-				Log(LOGTYPE_DEBUGCONCURRENCY, "%s is going to lock %d, %d\n", who, x, y)
-				//NextMomentYXLocks[y][x].Lock()
-			}
-		}
-	}
-	Log(LOGTYPE_DEBUGCONCURRENCY, "%s trying to release bulk lock\n", who)
-	bulkGrabLock.Unlock()
-}
+//func lockYXRangeInclusive(startY int, endY int, startX int, endX int, who string) {
+//	Log(LOGTYPE_DEBUGCONCURRENCY, "%s Trying to grab bulk lock\n", who)
+//	bulkGrabLock.Lock()
+//	Log(LOGTYPE_DEBUGCONCURRENCY, "%s Grabbed successfully\n", who)
+//	for y := startY; y < endY+1; y++ {
+//		for x := startX; x < endX+1; x++ {
+//			if !NextMoment.IsOutOfBounds(x, y, z) {
+//				Log(LOGTYPE_DEBUGCONCURRENCY, "%s is going to lock %d, %d\n", who, x, y)
+//				//NextMomentYXLocks[y][x].Lock()
+//			}
+//		}
+//	}
+//	Log(LOGTYPE_DEBUGCONCURRENCY, "%s trying to release bulk lock\n", who)
+//	bulkGrabLock.Unlock()
+//}
 
 var SpeciesIDCounter = 0
 var IDCounter = 0
@@ -515,11 +515,14 @@ func spontaneouslyGenerateCell() {
 	var foundSpotYet = false
 	var tries = 0
 	var giveUp = false
+
+	var z = 0
+
 	for !foundSpotYet && !giveUp {
 
 		var xTry = rand.Intn(GRID_WIDTH)
 		var yTry = rand.Intn(GRID_HEIGHT)
-		if !NextMoment.IsOccupied(xTry, yTry) {
+		if !NextMoment.IsOccupied(xTry, yTry, z) {
 			foundSpotYet = true
 			newCell.X = xTry
 			newCell.Y = yTry
@@ -527,7 +530,6 @@ func spontaneouslyGenerateCell() {
 			newCell.ID = IDCounter
 			IDCounter++
 			SpeciesIDCounter++
-			fmt.Println("making that species spontaneously!")
 			newCell.SpeciesColor = getNextColor()
 			newCell.Energy = float64(rand.Intn(100))
 			newCell.TimeLeftToWait = 0
@@ -539,7 +541,7 @@ func spontaneouslyGenerateCell() {
 			newCell.EnergySpentOnReproducing = REPRODUCE_COST + float64(rand.Intn(1500))
 			newCell.EnergyReproduceThreshold = newCell.EnergySpentOnReproducing + float64(rand.Intn(1500))
 			newCell.Canopy = false
-			newCell.GrowChloroplastsAt = float64(rand.Intn(1500)) + GROWCHLOROPLASTS_COST
+			newCell.GrowChloroplastsAt = float64(rand.Intn(20)) + GROWCHLOROPLASTS_COST //float64(rand.Intn(1500)) + GROWCHLOROPLASTS_COST
 			newCell.GrowCanopyAt = float64(rand.Intn(1500)) + GROWCANOPY_COST
 			newCell.GrowHeightAt = float64(rand.Intn(1500)) + GROWHEIGHT_COST
 			if rand.Intn(100) < 50 {
@@ -562,7 +564,7 @@ func spontaneouslyGenerateCell() {
 
 			NextMoment.Cells = append(NextMoment.Cells, newCell)
 			Log(LOGTYPE_HIGHFREQUENCY, "Added cell %d to next moment\n", newCell.ID)
-			NextMoment.CellsSpatialIndex[yTry][xTry] = newCell
+			NextMoment.AddCellToSpatialIndex(newCell)
 		}
 		tries++
 		if tries > MAX_TRIES_TO_FIND_EMPTY_GRID_COORD {
@@ -632,7 +634,7 @@ func shineOnAllCells() {
 
 		var isDayTime = momentNum%100 <= 50
 		var wg = &sync.WaitGroup{}
-		for yi := range CurrentMoment.CellsSpatialIndex {
+		for yi := 0; yi < GRID_HEIGHT; yi++ {
 			wg.Add(1)
 			go shineThisRow(yi, isDayTime, wg)
 
@@ -647,7 +649,7 @@ func shineOnAllCells() {
 }
 
 func shineThisRow(yi int, isDayTime bool, wg *sync.WaitGroup) {
-	for xi := range CurrentMoment.CellsSpatialIndex[yi] {
+	for xi := 0; xi < GRID_WIDTH; xi++ {
 		if isDayTime { //int(YProximityToMiddleAsPercent(yi)*100)
 
 			var shineAmountForThisSquare float64
@@ -672,7 +674,10 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 	//TODO: Just making the array is faster than using pool. Surprising
 	var surroundingCellsWithCanopiesAndMe = &[SURROUNDINGS_SIZE]*Cell{} //surroundingsPool.Borrow()
 	var numSurrounders = 0
-	var cell = CurrentMoment.CellsSpatialIndex[y][x]
+	//TODO: Need to rejigger to take into account 3rd dimension better
+	var z = 0
+
+	var cell = CurrentMoment.CellsSpatialIndex[z][y][x]
 
 	//If we have a cell that is tall...
 	if cell != nil && cell.Chloroplasts == true && cell.Height == 1 {
@@ -693,8 +698,8 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 				if relativeX == 0 && relativeY == 0 {
 					continue
 				}
-				if !CurrentMoment.IsOutOfBounds(xTry, yTry) && CurrentMoment.IsOccupied(xTry, yTry) && CurrentMoment.CellsSpatialIndex[yTry][xTry].Canopy == true {
-					var surroundingCell = CurrentMoment.CellsSpatialIndex[yTry][xTry]
+				if !CurrentMoment.IsOutOfBounds(xTry, yTry, z) && CurrentMoment.IsOccupied(xTry, yTry, z) && CurrentMoment.CellsSpatialIndex[z][yTry][xTry].Canopy == true {
+					var surroundingCell = CurrentMoment.CellsSpatialIndex[z][yTry][xTry]
 					surroundingCellsWithCanopiesAndMe[numSurrounders] = surroundingCell
 					numSurrounders++
 				}
@@ -708,17 +713,17 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 	}
 }
 
-func unlockYXRangeInclusive(startY int, endY int, startX int, endX int, who string) {
-	for y := startY; y < endY+1; y++ {
-		for x := startX; x < endX+1; x++ {
-			if !NextMoment.IsOutOfBounds(x, y) {
-				Log(LOGTYPE_DEBUGCONCURRENCY, "%s is going to unlock %d, %d\n", who, x, y)
-				//	NextMomentYXLocks[y][x].Unlock()
-			}
-		}
-	}
-}
+//func unlockYXRangeInclusive(startY int, endY int, startX int, endX int, who string) {
+//	for y := startY; y < endY+1; y++ {
+//		for x := startX; x < endX+1; x++ {
+//			if !NextMoment.IsOutOfBounds(x, y) {
+//				Log(LOGTYPE_DEBUGCONCURRENCY, "%s is going to unlock %d, %d\n", who, x, y)
+//				//	NextMomentYXLocks[y][x].Unlock()
+//			}
+//		}
+//	}
+//}
 
-func unlockAllYXs(who string) {
-	unlockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
-}
+//func unlockAllYXs(who string) {
+//	unlockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
+//}
