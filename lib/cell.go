@@ -10,7 +10,7 @@ const CELL_LIFESPAN = 300
 
 const BASIC_BRAIN_UPKEEP = .25
 const CHLOROPLAST_UPKEEP = .75
-const CANOPY_UPKEEP = 3.0
+const CANOPY_UPKEEP = 3.5
 const LEGS_UPKEEP = .25
 const HEIGHT_UPKEEP = .25
 
@@ -19,10 +19,10 @@ const MOVE_COST = 5
 const THINKING_COST = 10.0
 const REPRODUCE_COST = 30
 
-const GROWCHLOROPLASTS_COST = 30
-const GROWCANOPY_COST = 120
+const GROWCHLOROPLASTS_COST = 15
+const GROWCANOPY_COST = 60
 const GROWLEGS_COST = 45
-const GROWHEIGHT_COST = 100
+const GROWHEIGHT_COST = 200
 
 //TODO: Make it easy to add a field and have it appear in all the right places Re: copying and whatnot
 
@@ -146,6 +146,10 @@ func (cell *Cell) GrowLegs() {
 		return
 	} else {
 		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Growing legs\n", cell.ID)
+		//TODO: Not sure if this logic will hold up when we have awesome mountain-climbers
+		//if cell.NextMomentSelf.Z == 0 {
+		//	cell.NextMomentSelf.Z = 1
+		//}
 		cell.NextMomentSelf.Legs = true
 		cell.DecreaseEnergy(GROWLEGS_COST)
 	}
@@ -261,7 +265,7 @@ foundSpot:
 }
 
 func (cell *Cell) IsReadyToGrowLegs() bool {
-	return !cell.isDead() && cell.Legs == false && cell.Energy > cell.GrowLegsAt
+	return !cell.isDead() && cell.Height >= 1 && cell.Legs == false && cell.Energy > cell.GrowLegsAt
 }
 
 func (cell *Cell) CountDown_TimeLeftToWait() {

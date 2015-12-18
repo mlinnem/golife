@@ -107,7 +107,7 @@ func main() {
 
 		NextMoment.MomentNum = momentNum + 1
 		if momentNum%PRINTGRID_EVERY_N_TURNS == 0 {
-			PrintGrid(CurrentMoment, 1)
+			PrintGrid(CurrentMoment, DEFAULT_PRINTGRID_DEPTH)
 			PrintSpeciesReport(CurrentMoment, NUM_TOP_SPECIES_TO_PRINT)
 		}
 		var t1a = time.Now()
@@ -659,7 +659,7 @@ func shineThisRow(yi int, isDayTime bool, wg *sync.WaitGroup) {
 			} else {
 				shineAmountForThisSquare = SHINE_ENERGY_AMOUNT * SHINE_FREQUENCY * (float64(xi) / GRID_WIDTH) * 2 * 2 //* float64(float64(yi)/float64(GRID_HEIGHT))
 			}
-			newShineMethod(xi, yi, shineAmountForThisSquare)
+			newerShineMethod(xi, yi, shineAmountForThisSquare)
 		} else {
 			//No sun at night
 		}
@@ -710,6 +710,58 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 			LogIfTraced(surroundingCellsWithCanopiesAndMe[i], LOGTYPE_CELLEFFECT, "cell %d: Shine @ height 0, 1/%d\n", surroundingCellsWithCanopiesAndMe[i].ID, numSurrounders)
 			surroundingCellsWithCanopiesAndMe[i].IncreaseEnergy(energyToEachCell)
 		}
+	}
+}
+
+func newerShineMethod(x int, y int, shineAmountForThisSquare float64) {
+	//	fmt.Printf("Shinin \n")
+
+	var shineAmountLeft = shineAmountForThisSquare
+	for z := GRID_DEPTH - 1; z >= 0; z-- {
+		//	fmt.Printf("Blam")
+		var remaining = giveEnergyToNonSolidCellsAtThisLevel(x, y, z, shineAmountLeft/2)
+		//TODO: This needs to handle roofs
+		shineAmountLeft = shineAmountLeft/2 + remaining
+		if z == 0 {
+			var cell = CurrentMoment.CellsSpatialIndex[z][y][x]
+			if cell != nil && cell.Chloroplasts == true {
+				cell.IncreaseEnergy(shineAmountLeft)
+			}
+			//We're about to hit ground cover
+		} else {
+		}
+	}
+}
+
+func giveEnergyToNonSolidCellsAtThisLevel(x int, y int, z int, shineAmountForThisSquare float64) float64 {
+	//fmt.Printf("Shine on canopy folks at %d,%d,%d with %6.1f\n", x, y, z, shineAmountForThisSquare)
+	var surroundingCellsWithCanopiesAndMe = &[SURROUNDINGS_SIZE]*Cell{} //surroundingsPool.Borrow()
+	var numSurrounders = 0
+
+	//var cell = CurrentMoment.CellsSpatialIndex[z][y][x]
+
+	for relativeY := -1; relativeY < 2; relativeY++ {
+		for relativeX := -1; relativeX < 2; relativeX++ {
+			var xTry = x + relativeX
+			var yTry = y + relativeY
+
+			if !CurrentMoment.IsOutOfBounds(xTry, yTry, z) && CurrentMoment.IsOccupied(xTry, yTry, z) && CurrentMoment.CellsSpatialIndex[z][yTry][xTry].Canopy == true {
+				var surroundingCell = CurrentMoment.CellsSpatialIndex[z][yTry][xTry]
+				surroundingCellsWithCanopiesAndMe[numSurrounders] = surroundingCell
+				numSurrounders++
+			}
+		}
+	}
+	var energyToEachCell = shineAmountForThisSquare / float64(numSurrounders)
+	for i := 0; i < numSurrounders; i++ {
+		LogIfTraced(surroundingCellsWithCanopiesAndMe[i], LOGTYPE_CELLEFFECT, "cell %d: Shine @ height 0, 1/%d\n", surroundingCellsWithCanopiesAndMe[i].ID, numSurrounders)
+		surroundingCellsWithCanopiesAndMe[i].IncreaseEnergy(energyToEachCell)
+	}
+
+	if numSurrounders == 0 {
+		return shineAmountForThisSquare
+	} else {
+		return 0
 	}
 }
 

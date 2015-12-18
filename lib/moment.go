@@ -9,8 +9,11 @@ var CurrentMoment *Moment
 var NextMoment *Moment
 
 type Moment struct {
-	MomentNum         int
-	Cells             []*Cell
+	MomentNum int
+	Cells     []*Cell
+	//	CellsSpatialIndexSolid        [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell
+	//	CellsSpatialIndexCoverSurface [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell
+	//CellsSpatialIndexNonSolid     [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell
 	CellsSpatialIndex [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell
 	//	atmosphericMaterial float64
 }
@@ -45,6 +48,7 @@ func (moment *Moment) Clean(wg *sync.WaitGroup) {
 	//TODO: Put log back in when you can make log its own module thingie
 	//Log(LOGTYPE_MAINLOOPSINGLE, "You made it to right before allocating the big cell thing\n")
 	//TODO: Letting garbage collector take care of cleaning rather than manual for now
+	//	moment.CellsSpatialIndexFilling = [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell{}
 	moment.CellsSpatialIndex = [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell{}
 	// for yi := range moment.CellsSpatialIndex {
 	// 	//internalwg.Add(1)
@@ -57,6 +61,10 @@ func (moment *Moment) Clean(wg *sync.WaitGroup) {
 
 func (moment *Moment) AddCellToSpatialIndex(cell *Cell) {
 	for i := 0; i < cell.Height+1; i++ {
+		//Cover-Surface == if not legs, Cover-Ground at z + height
+		//Non-Solid == 1 around for canopy on same z level, and 1 in current x,y,z
+		//Solid == 1 for each height, starting with Z level.
+		//fmt.Printf("%d %d %d\n", cell.Z+i, cell.Y, cell.X)
 		moment.CellsSpatialIndex[cell.Z+i][cell.Y][cell.X] = cell
 	}
 }
