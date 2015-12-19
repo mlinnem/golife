@@ -9,9 +9,9 @@ var CurrentMoment *Moment
 var NextMoment *Moment
 
 type Moment struct {
-	MomentNum int
-	Cells     []*Cell
-	//	CellsSpatialIndexSolid        [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell
+	MomentNum              int
+	Cells                  []*Cell
+	CellsSpatialIndexSolid [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell
 	//	CellsSpatialIndexCoverSurface [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell
 	//CellsSpatialIndexNonSolid     [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell
 	CellsSpatialIndex [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell
@@ -50,6 +50,7 @@ func (moment *Moment) Clean(wg *sync.WaitGroup) {
 	//TODO: Letting garbage collector take care of cleaning rather than manual for now
 	//	moment.CellsSpatialIndexFilling = [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell{}
 	moment.CellsSpatialIndex = [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell{}
+
 	// for yi := range moment.CellsSpatialIndex {
 	// 	//internalwg.Add(1)
 	// 	moment.CleanRow(yi)
