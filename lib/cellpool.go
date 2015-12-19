@@ -34,7 +34,7 @@ loop:
 		for _, cellToDelete := range cellsToDelete {
 			if cellThatExists == cellToDelete {
 				CellPool.Return(cellToDelete)
-				moment.CellsSpatialIndex[cellToDelete.Z][cellToDelete.Y][cellToDelete.X] = nil
+				moment.SpatialIndexSurfaceCover[cellToDelete.Z][cellToDelete.Y][cellToDelete.X] = nil
 				continue loop
 			}
 		}

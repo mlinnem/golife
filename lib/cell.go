@@ -147,9 +147,9 @@ func (cell *Cell) GrowLegs() {
 	} else {
 		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Growing legs\n", cell.ID)
 		//TODO: Not sure if this logic will hold up when we have awesome mountain-climbers
-		//if cell.NextMomentSelf.Z == 0 {
-		//	cell.NextMomentSelf.Z = 1
-		//}
+		if cell.NextMomentSelf.Z == 0 {
+			cell.NextMomentSelf.Z = 1
+		}
 		cell.NextMomentSelf.Legs = true
 		cell.DecreaseEnergy(GROWLEGS_COST)
 	}
@@ -178,7 +178,7 @@ func (cell *Cell) MoveRandom() bool {
 		var xTry = cell.X + direction.X
 		var yTry = cell.Y + direction.Y
 
-		if !NextMoment.IsOccupied(xTry, yTry, cell.Z) {
+		if !NextMoment.IsSolidOrCovered(xTry, yTry, cell.Z) {
 			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Moving %d, %d -> %d, %d\n", cell.ID, cell.X, cell.Y, xTry, yTry)
 
 			NextMoment.RemoveCellFromSpatialIndex(cell)
@@ -214,7 +214,7 @@ func (cell *Cell) IsTimeToReproduce() bool {
 		for relativeX := -1; relativeX < 2; relativeX++ {
 			var xTry = cell.X + relativeX
 			var yTry = cell.Y + relativeY
-			if !NextMoment.IsOccupied(xTry, yTry, cell.Z) {
+			if !NextMoment.IsSolidOrCovered(xTry, yTry, cell.Z) {
 				isThereASpotToReproduce = true
 				goto foundSpot
 			}
@@ -237,7 +237,7 @@ func (cell *Cell) IsReadyToGrowChloroplasts() bool {
 }
 
 func (cell *Cell) IsReadyToGrowHeight() bool {
-	return cell.Height == 0 && cell.Energy > cell.GrowHeightAt && !NextMoment.IsOccupied(cell.X, cell.Y, 1)
+	return cell.Height == 0 && cell.Energy > cell.GrowHeightAt && !NextMoment.IsSolidOrCovered(cell.X, cell.Y, 1)
 }
 
 func (cell *Cell) WantsToAndCanMove() bool {
@@ -250,7 +250,7 @@ func (cell *Cell) WantsToAndCanMove() bool {
 		for relativeY := -1; relativeY < 2; relativeY++ {
 			var xTry = cell.X + relativeX
 			var yTry = cell.Y + relativeY
-			if !NextMoment.IsOccupied(xTry, yTry, cell.Z) {
+			if !NextMoment.IsSolidOrCovered(xTry, yTry, cell.Z) {
 				isThereASpotToMove = true
 				goto foundSpot
 			}
@@ -287,8 +287,6 @@ func (cell *Cell) GrowCanopy() {
 	} else if !cell.isDead() {
 		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Growing Canopy\n", cell.ID)
 		cell.NextMomentSelf.Canopy = true
-		//TODO: Reinstate this log
-		Log(LOGTYPE_CELLEFFECT, "Cell %d grew canopy\n", cell.ID)
 		cell.DecreaseEnergy(GROWCANOPY_COST)
 	}
 }

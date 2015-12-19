@@ -3,9 +3,9 @@ package lib
 //FOUNDATIONAL WORLD VARIABLES
 
 //---RUN_CONDITIONS-----
-const RANDOM_SEED = true
+const RANDOM_SEED = false
 
-const MAX_MOMENTS = 999000
+const MAX_MOMENTS = 39000
 
 //---WORLD_CONDITIONS---
 const SHINE_ENERGY_AMOUNT = 1.0
@@ -14,7 +14,7 @@ const SHINE_ENERGY_AMOUNT = 1.0
 
 const INITIAL_CELL_COUNT = 2000
 
-const GRID_DEPTH = 2
+const GRID_DEPTH = 4
 const GRID_WIDTH = 140
 const GRID_HEIGHT = 25
 
@@ -41,7 +41,7 @@ const (
 	LOGTYPE_CELLEFFECT             = iota
 )
 
-const PRINTGRID_EVERY_N_TURNS = 20
+const PRINTGRID_EVERY_N_TURNS = 500
 
 const DEFAULT_PRINTGRID_DEPTH = 0
 

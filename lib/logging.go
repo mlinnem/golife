@@ -91,9 +91,9 @@ func printCell(cell *Cell) {
 func PrintGrid(moment *Moment, z int) {
 	if containsInt(LOGTYPES_ENABLED, LOGTYPE_PRINTGRID_GRID) {
 		Log(LOGTYPE_PRINTGRID_GRID, "\n")
-		for yi := range moment.CellsSpatialIndex[z] {
-			for xi := range moment.CellsSpatialIndex[z][yi] {
-				var cell = moment.CellsSpatialIndex[z][yi][xi]
+		for yi := range moment.SpatialIndexSurfaceCover[z] {
+			for xi := range moment.SpatialIndexSurfaceCover[z][yi] {
+				var cell = moment.SpatialIndexSurfaceCover[z][yi][xi]
 				printCell(cell)
 			}
 			Log(LOGTYPE_PRINTGRID_GRID, "\n")
@@ -102,7 +102,7 @@ func PrintGrid(moment *Moment, z int) {
 		Log(LOGTYPE_PRINTGRID_BIGGRID, "\n")
 		for yi := 0; yi < GRID_HEIGHT; yi += BIGGRID_INCREMENT {
 			for xi := 0; xi < GRID_WIDTH; xi += BIGGRID_INCREMENT {
-				var cell = moment.CellsSpatialIndex[z][yi][xi]
+				var cell = moment.SpatialIndexSurfaceCover[z][yi][xi]
 				printCell(cell)
 			}
 			Log(LOGTYPE_PRINTGRID_BIGGRID, "\n")

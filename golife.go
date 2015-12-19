@@ -46,12 +46,14 @@ func startPersistentThreads() {
 
 func transferLiveCellsToNextMoment() {
 	NextMoment.Cells = make([]*Cell, 0, len(CurrentMoment.Cells))
-	NextMoment.CellsSpatialIndex = [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell{}
+	NextMoment.SpatialIndexSurfaceCover = [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell{}
+	NextMoment.SpatialIndexSolid = [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell{}
 	for _, CurrentMomentCell := range CurrentMoment.Cells {
 
 		//This takes place of reaper function
-		//Log(LOGTYPE_HIGHFREQUENCY, "a cell %d, has %6.2f energy\n", CurrentMomentCell._secretID, CurrentMomentCell.Energy)
+		Log(LOGTYPE_HIGHFREQUENCY, "a cell %d, has %6.2f energy\n", CurrentMomentCell.ID, CurrentMomentCell.Energy)
 		if CurrentMomentCell.Energy > 0 {
+
 			var NextMomentCell = CurrentMomentCell.ContinueOn()
 			NextMoment.Cells = append(NextMoment.Cells, NextMomentCell)
 			NextMoment.AddCellToSpatialIndex(NextMomentCell)
@@ -379,7 +381,7 @@ func reproduce(cell *Cell) {
 	for _, direction := range GetSurroundingDirectionsInRandomOrder() {
 		var xTry = cell.X + direction.X
 		var yTry = cell.Y + direction.Y
-		if !NextMoment.IsOccupied(xTry, yTry, z) {
+		if !NextMoment.IsSolidOrCovered(xTry, yTry, z) {
 			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Making baby from %d, %d -> %d, %d\n", cell.ID, cell.X, cell.Y, xTry, yTry)
 			var babyCell = CellPool.Borrow()
 			babyCell.Energy = cell.EnergySpentOnReproducing - REPRODUCE_COST
@@ -522,7 +524,7 @@ func spontaneouslyGenerateCell() {
 
 		var xTry = rand.Intn(GRID_WIDTH)
 		var yTry = rand.Intn(GRID_HEIGHT)
-		if !NextMoment.IsOccupied(xTry, yTry, z) {
+		if !NextMoment.IsSolidOrCovered(xTry, yTry, z) {
 			foundSpotYet = true
 			newCell.X = xTry
 			newCell.Y = yTry
@@ -677,7 +679,7 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 	//TODO: Need to rejigger to take into account 3rd dimension better
 	var z = 0
 
-	var cell = CurrentMoment.CellsSpatialIndex[z][y][x]
+	var cell = CurrentMoment.SpatialIndexSurfaceCover[z][y][x]
 
 	//If we have a cell that is tall...
 	if cell != nil && cell.Chloroplasts == true && cell.Height == 1 {
@@ -698,8 +700,8 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 				if relativeX == 0 && relativeY == 0 {
 					continue
 				}
-				if !CurrentMoment.IsOutOfBounds(xTry, yTry, z) && CurrentMoment.IsOccupied(xTry, yTry, z) && CurrentMoment.CellsSpatialIndex[z][yTry][xTry].Canopy == true {
-					var surroundingCell = CurrentMoment.CellsSpatialIndex[z][yTry][xTry]
+				if !CurrentMoment.IsOutOfBounds(xTry, yTry, z) && CurrentMoment.IsSolidOrCovered(xTry, yTry, z) && CurrentMoment.SpatialIndexSurfaceCover[z][yTry][xTry].Canopy == true {
+					var surroundingCell = CurrentMoment.SpatialIndexSurfaceCover[z][yTry][xTry]
 					surroundingCellsWithCanopiesAndMe[numSurrounders] = surroundingCell
 					numSurrounders++
 				}
@@ -723,7 +725,7 @@ func newerShineMethod(x int, y int, shineAmountForThisSquare float64) {
 		//TODO: This needs to handle roofs
 		shineAmountLeft = shineAmountLeft/2 + remaining
 		if z == 0 {
-			var cell = CurrentMoment.CellsSpatialIndex[z][y][x]
+			var cell = CurrentMoment.SpatialIndexSurfaceCover[z][y][x]
 			if cell != nil && cell.Chloroplasts == true {
 				cell.IncreaseEnergy(shineAmountLeft)
 			}
@@ -738,15 +740,15 @@ func giveEnergyToNonSolidCellsAtThisLevel(x int, y int, z int, shineAmountForThi
 	var surroundingCellsWithCanopiesAndMe = &[SURROUNDINGS_SIZE]*Cell{} //surroundingsPool.Borrow()
 	var numSurrounders = 0
 
-	//var cell = CurrentMoment.CellsSpatialIndex[z][y][x]
+	//var cell = CurrentMoment.SpatialIndexSurfaceCover[z][y][x]
 
 	for relativeY := -1; relativeY < 2; relativeY++ {
 		for relativeX := -1; relativeX < 2; relativeX++ {
 			var xTry = x + relativeX
 			var yTry = y + relativeY
 
-			if !CurrentMoment.IsOutOfBounds(xTry, yTry, z) && CurrentMoment.IsOccupied(xTry, yTry, z) && CurrentMoment.CellsSpatialIndex[z][yTry][xTry].Canopy == true {
-				var surroundingCell = CurrentMoment.CellsSpatialIndex[z][yTry][xTry]
+			if !CurrentMoment.IsOutOfBounds(xTry, yTry, z) && CurrentMoment.IsCovered(xTry, yTry, z) && CurrentMoment.SpatialIndexSurfaceCover[z][yTry][xTry].Canopy == true {
+				var surroundingCell = CurrentMoment.SpatialIndexSurfaceCover[z][yTry][xTry]
 				surroundingCellsWithCanopiesAndMe[numSurrounders] = surroundingCell
 				numSurrounders++
 			}
