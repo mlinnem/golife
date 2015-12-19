@@ -44,7 +44,6 @@ type Cell struct {
 	GrowLegsAt                         float64
 	GrowHeightAt                       float64
 	EnergySpentOnReproducing           float64
-	NextMomentSelf                     *Cell
 	Age                                int
 	SpeciesID                          int
 	PercentChanceWait                  int     //out of 100
@@ -72,23 +71,24 @@ var TracedCell *Cell
 
 func (cell *Cell) DecreaseEnergy(amt float64) {
 	//TODO: Inlined dead stuff for performance reasons
-	if cell.Energy > 0 && cell.NextMomentSelf != nil {
-		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "\tenergy %6.1f -> %6.1f -%6.1f\n", cell.NextMomentSelf.Energy, cell.NextMomentSelf.Energy-amt, amt)
-		cell.NextMomentSelf.Energy -= amt
-	}
+	//if cell.Energy > 0 && cell.WSSelf != nil {
+	//	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "\tenergy %6.1f -> %6.1f -%6.1f\n", cell.Energy, cell.Energy-amt, amt)
+	cell.Energy -= amt
+	//}
 }
 
 func (cell *Cell) IncreaseEnergy(amt float64) {
 	//TODO: Inlined dead stuff for performance reasons
-	if cell.Energy > 0 && cell.NextMomentSelf != nil {
-		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "\tenergy %6.1f -> %6.1f, +%6.1f\n", cell.NextMomentSelf.Energy, cell.NextMomentSelf.Energy+amt, amt)
+	//if cell.Energy > 0 && cell.WSSelf != nil {
+	//	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "\tenergy %6.1f -> %6.1f, +%6.1f\n", cell.Energy, cell.Energy+amt, amt)
 
-		cell.NextMomentSelf.Energy = cell.NextMomentSelf.Energy + amt
-	}
+	cell.Energy = cell.Energy + amt
+	//}
 }
 
 //TODO: Why dpes height trigger flip out on species, and why is height so adaptive even without canapies.
 func (cell *Cell) Maintain() {
+	//	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Starting maintain\n", cell.ID)
 	var totalUpkeep = BASIC_BRAIN_UPKEEP
 	if cell.Chloroplasts {
 		totalUpkeep += CHLOROPLAST_UPKEEP
@@ -102,26 +102,27 @@ func (cell *Cell) Maintain() {
 	if cell.Height == 1 {
 		totalUpkeep += HEIGHT_UPKEEP
 	}
-	if cell != nil {
-		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d GROW STATUS: canopy %t, height %d, legs %t\n", cell.ID, cell.Canopy, cell.Height, cell.Legs)
-		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: maintain of %6.1f at age %d\n", cell.ID, totalUpkeep, cell.Age)
-	}
+	//	if cell != nil {
+	//		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d GROW STATUS: energy %6.1f, canopy %t, height %d, legs %t, chloroplasts %t,\n", cell.ID, cell.Energy, cell.Canopy, cell.Height, cell.Legs, cell.Chloroplasts)
+	//		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: maintain of %6.1f at age %d\n", cell.ID, totalUpkeep, cell.Age)
+	//	}
+	//	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: About to decrease energy from maintain\n", cell.ID)
 	cell.DecreaseEnergy((totalUpkeep * float64(cell.Age)) / CELL_LIFESPAN)
 	cell.increaseAge(1)
 }
 
 func (cell *Cell) increaseAge(amt int) {
-	if !cell.isDead() {
-		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Age %d -> %d, +1\n", cell.ID, cell.Age, cell.Age+1)
-		cell.NextMomentSelf.Age = cell.NextMomentSelf.Age + amt
-	}
+	//if !cell.isDead() {
+	//		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Age %d -> %d, +1\n", cell.ID, cell.Age, cell.Age+1)
+	cell.Age = cell.Age + amt
+	//}
 }
 
 func (cell *Cell) IncreaseWaitTime(amt int) {
-	if !cell.isDead() {
-		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Wait time %d -> %d, +%d\n", cell.ID, cell.TimeLeftToWait, cell.TimeLeftToWait+amt, amt)
-		cell.NextMomentSelf.TimeLeftToWait += amt
-	}
+	//if !cell.isDead() {
+	//		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Wait time %d -> %d, +%d\n", cell.ID, cell.TimeLeftToWait, cell.TimeLeftToWait+amt, amt)
+	cell.TimeLeftToWait += amt
+	//}
 }
 
 func (cell *Cell) GrowHeight() {
@@ -131,9 +132,11 @@ func (cell *Cell) GrowHeight() {
 		cell.DecreaseEnergy(GROWHEIGHT_COST)
 		return
 	} else {
-		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Growing height\n", cell.ID)
-		cell.NextMomentSelf.Height = 1
-		NextMoment.AddCellToSpatialIndex(cell)
+		//		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Growing height\n", cell.ID)
+		//TODO: This can probably be done more efficiently if it's a big deal
+		WS.RemoveCellFromSpatialIndex(cell)
+		cell.Height = 1
+		WS.AddCellToSpatialIndex(cell)
 		cell.DecreaseEnergy(GROWHEIGHT_COST)
 	}
 }
@@ -146,24 +149,22 @@ func (cell *Cell) GrowLegs() {
 		return
 	} else {
 		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Growing legs\n", cell.ID)
-		//TODO: Not sure if this logic will hold up when we have awesome mountain-climbers
-		if cell.NextMomentSelf.Z == 0 {
-			cell.NextMomentSelf.Z = 1
-		}
-		cell.NextMomentSelf.Legs = true
+		cell.Legs = true
 		cell.DecreaseEnergy(GROWLEGS_COST)
 	}
 }
 
 func (cell *Cell) GrowChloroplasts() {
+	//LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Trying to grow chloroplasts\n", cell.ID)
+
 	if cell.isDead() {
 		return
 	} else if !cell.IsReadyToGrowChloroplasts() {
 		cell.DecreaseEnergy(GROWCHLOROPLASTS_COST)
 		return
 	} else {
-		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Growing chloroplasts\n", cell.ID)
-		cell.NextMomentSelf.Chloroplasts = true
+		//	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Growing chloroplasts\n", cell.ID)
+		cell.Chloroplasts = true
 		cell.DecreaseEnergy(GROWCHLOROPLASTS_COST)
 	}
 }
@@ -178,13 +179,15 @@ func (cell *Cell) MoveRandom() bool {
 		var xTry = cell.X + direction.X
 		var yTry = cell.Y + direction.Y
 
-		if !NextMoment.IsSolidOrCovered(xTry, yTry, cell.Z) {
-			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Moving %d, %d -> %d, %d\n", cell.ID, cell.X, cell.Y, xTry, yTry)
+		//TODO: This move logic may overwrite stuff for larger cells
+		if WS.CanMoveHere(cell, xTry, yTry, cell.Z) {
+			//	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Moving %d, %d, %d -> %d, %d, %d\n", cell.ID, cell.X, cell.Y, cell.Z, xTry, yTry, cell.Z)
+			//	Log(LOGTYPE_CELLEFFECT, "cell %d: Moving %d, %d, %d -> %d, %d, %d\n", cell.ID, cell.X, cell.Y, cell.Z, xTry, yTry, cell.Z)
 
-			NextMoment.RemoveCellFromSpatialIndex(cell)
+			WS.RemoveCellFromSpatialIndex(cell)
 			cell.X = xTry
 			cell.Y = yTry
-			NextMoment.AddCellToSpatialIndex(cell)
+			WS.AddCellToSpatialIndex(cell)
 			cell.DecreaseEnergy(MOVE_COST)
 
 			return true
@@ -194,10 +197,10 @@ func (cell *Cell) MoveRandom() bool {
 }
 
 func (cell *Cell) Wait() {
-	if !cell.isDead() {
-		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Waiting %d -> %d\n", cell.ID, cell.NextMomentSelf.TimeLeftToWait, cell.ClockRate*ACTUAL_WAIT_MULTIPLIER)
-		cell.NextMomentSelf.TimeLeftToWait = ACTUAL_WAIT_MULTIPLIER * cell.ClockRate
-	}
+	//if !cell.isDead() {
+	//	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Waiting %d -> %d\n", cell.ID, cell.TimeLeftToWait, cell.ClockRate*ACTUAL_WAIT_MULTIPLIER)
+	cell.TimeLeftToWait = ACTUAL_WAIT_MULTIPLIER * cell.ClockRate
+	//	}
 }
 
 func (cell *Cell) ShouldWait() bool {
@@ -205,7 +208,7 @@ func (cell *Cell) ShouldWait() bool {
 }
 
 func (cell *Cell) isDead() bool {
-	return cell.Energy <= 0 || cell.NextMomentSelf == nil
+	return cell.Energy <= 0
 }
 
 func (cell *Cell) IsTimeToReproduce() bool {
@@ -214,7 +217,7 @@ func (cell *Cell) IsTimeToReproduce() bool {
 		for relativeX := -1; relativeX < 2; relativeX++ {
 			var xTry = cell.X + relativeX
 			var yTry = cell.Y + relativeY
-			if !NextMoment.IsSolidOrCovered(xTry, yTry, cell.Z) {
+			if !WS.IsSolidOrCovered(xTry, yTry, cell.Z) {
 				isThereASpotToReproduce = true
 				goto foundSpot
 			}
@@ -237,7 +240,7 @@ func (cell *Cell) IsReadyToGrowChloroplasts() bool {
 }
 
 func (cell *Cell) IsReadyToGrowHeight() bool {
-	return cell.Height == 0 && cell.Energy > cell.GrowHeightAt && !NextMoment.IsSolidOrCovered(cell.X, cell.Y, 1)
+	return cell.Height == 0 && cell.Energy > cell.GrowHeightAt && !WS.IsSolidOrCovered(cell.X, cell.Y, 1)
 }
 
 func (cell *Cell) WantsToAndCanMove() bool {
@@ -250,7 +253,7 @@ func (cell *Cell) WantsToAndCanMove() bool {
 		for relativeY := -1; relativeY < 2; relativeY++ {
 			var xTry = cell.X + relativeX
 			var yTry = cell.Y + relativeY
-			if !NextMoment.IsSolidOrCovered(xTry, yTry, cell.Z) {
+			if !WS.IsSolidOrCovered(xTry, yTry, cell.Z) {
 				isThereASpotToMove = true
 				goto foundSpot
 			}
@@ -269,11 +272,11 @@ func (cell *Cell) IsReadyToGrowLegs() bool {
 }
 
 func (cell *Cell) CountDown_TimeLeftToWait() {
-	if !cell.isDead() {
-		//TODO: This may not be necessary to Max
-		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Waiting... (%d left)\n", cell.ID, cell.NextMomentSelf.TimeLeftToWait-1)
-		cell.NextMomentSelf.TimeLeftToWait = int(math.Max(0.0, float64(cell.NextMomentSelf.TimeLeftToWait-1)))
-	}
+	//	if !cell.isDead() {
+	//TODO: This may not be necessary to Max
+	//	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Waiting... (%d left)\n", cell.ID, cell.TimeLeftToWait-1)
+	cell.TimeLeftToWait = int(math.Max(0.0, float64(cell.TimeLeftToWait-1)))
+	//}
 }
 
 func (cell *Cell) GrowCanopy() {
@@ -285,8 +288,8 @@ func (cell *Cell) GrowCanopy() {
 		return
 		//TODO: Not sure why I need to check this condition twice, but it seems to prevent a nil reference thing. Or does it?
 	} else if !cell.isDead() {
-		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Growing Canopy\n", cell.ID)
-		cell.NextMomentSelf.Canopy = true
+		//	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Growing Canopy\n", cell.ID)
+		cell.Canopy = true
 		cell.DecreaseEnergy(GROWCANOPY_COST)
 	}
 }

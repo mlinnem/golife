@@ -5,7 +5,7 @@ package lib
 //---RUN_CONDITIONS-----
 const RANDOM_SEED = false
 
-const MAX_MOMENTS = 39000
+const MAX_WSS = 39000
 
 //---WORLD_CONDITIONS---
 const SHINE_ENERGY_AMOUNT = 1.0
@@ -14,7 +14,7 @@ const SHINE_ENERGY_AMOUNT = 1.0
 
 const INITIAL_CELL_COUNT = 2000
 
-const GRID_DEPTH = 4
+const GRID_DEPTH = 2
 const GRID_WIDTH = 140
 const GRID_HEIGHT = 25
 
@@ -62,7 +62,7 @@ const NONCELLACTIONDECIDER_ROUTINECOUNT = 1
 
 const MAX_CELL_COUNT = 900000
 
-const CELLS_PER_BUNDLE = 1000
+const CELLS_PER_BUNDLE = 5000
 
 //END CONSTANTS-x-x-x-x-x-x-x-x-x-x-x
 

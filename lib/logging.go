@@ -88,12 +88,12 @@ func printCell(cell *Cell) {
 	}
 }
 
-func PrintGrid(moment *Moment, z int) {
+func PrintGrid(WS *WorldState, z int) {
 	if containsInt(LOGTYPES_ENABLED, LOGTYPE_PRINTGRID_GRID) {
 		Log(LOGTYPE_PRINTGRID_GRID, "\n")
-		for yi := range moment.SpatialIndexSurfaceCover[z] {
-			for xi := range moment.SpatialIndexSurfaceCover[z][yi] {
-				var cell = moment.SpatialIndexSurfaceCover[z][yi][xi]
+		for yi := range WS.SpatialIndexSurfaceCover[z] {
+			for xi := range WS.SpatialIndexSurfaceCover[z][yi] {
+				var cell = WS.SpatialIndexSurfaceCover[z][yi][xi]
 				printCell(cell)
 			}
 			Log(LOGTYPE_PRINTGRID_GRID, "\n")
@@ -102,7 +102,7 @@ func PrintGrid(moment *Moment, z int) {
 		Log(LOGTYPE_PRINTGRID_BIGGRID, "\n")
 		for yi := 0; yi < GRID_HEIGHT; yi += BIGGRID_INCREMENT {
 			for xi := 0; xi < GRID_WIDTH; xi += BIGGRID_INCREMENT {
-				var cell = moment.SpatialIndexSurfaceCover[z][yi][xi]
+				var cell = WS.SpatialIndexSurfaceCover[z][yi][xi]
 				printCell(cell)
 			}
 			Log(LOGTYPE_PRINTGRID_BIGGRID, "\n")
@@ -125,8 +125,8 @@ func PrintGrid(moment *Moment, z int) {
 	var chloroplastsTotal = 0
 	var height1Total = 0
 
-	for ci := range moment.Cells {
-		var cell = moment.Cells[ci]
+	for ci := range WS.Cells {
+		var cell = WS.Cells[ci]
 
 		ageTotal += cell.Age
 		energyTotal += cell.Energy
@@ -136,9 +136,9 @@ func PrintGrid(moment *Moment, z int) {
 		EnergySpentOnReproducingTotal += cell.EnergySpentOnReproducing
 		PercentChanceWaitTotal += cell.PercentChanceWait
 		ClockRateTotal += cell.ClockRate
-		if moment.Cells[ci].Canopy == true {
+		if WS.Cells[ci].Canopy == true {
 			canopyTotal++
-			GrowCanopyAtTotal += moment.Cells[ci].GrowCanopyAt
+			GrowCanopyAtTotal += WS.Cells[ci].GrowCanopyAt
 		}
 		if cell.Legs == true {
 			legsTotal++
@@ -153,24 +153,24 @@ func PrintGrid(moment *Moment, z int) {
 			height1Total++
 		}
 
-		Log(LOGTYPE_PRINTGRIDCELLS, "(Cell) %d: %d,%d with %f, age %d, reprod at %f, grew canopy at %f, reproduces with %f\n", cell.ID, moment.Cells[ci].X, moment.Cells[ci].Y, moment.Cells[ci].Energy, moment.Cells[ci].Age, moment.Cells[ci].EnergyReproduceThreshold, moment.Cells[ci].GrowCanopyAt, cell.EnergySpentOnReproducing)
+		Log(LOGTYPE_PRINTGRIDCELLS, "(Cell) %d: %d,%d with %f, age %d, reprod at %f, grew canopy at %f, reproduces with %f\n", cell.ID, WS.Cells[ci].X, WS.Cells[ci].Y, WS.Cells[ci].Energy, WS.Cells[ci].Age, WS.Cells[ci].EnergyReproduceThreshold, WS.Cells[ci].GrowCanopyAt, cell.EnergySpentOnReproducing)
 	}
 
 	Log(LOGTYPE_PRINTGRID_SUMMARY, "-----SUMMARY STATE-----\n")
-	Log(LOGTYPE_PRINTGRID_SUMMARY, "moment %d...\n", moment.MomentNum)
+	Log(LOGTYPE_PRINTGRID_SUMMARY, "WS %d...\n", WS.WSNum)
 
-	Log(LOGTYPE_PRINTGRID_SUMMARY, "%d cells total\n\n", len(moment.Cells))
-	Log(LOGTYPE_MAINLOOPSINGLE, "Cell Count: %d\n", len(CurrentMoment.Cells))
-	var energyReproduceThresholdAvg = energyReproduceThresholdTotal / float64(len(moment.Cells))
-	var GrowCanopyAtAvg = GrowCanopyAtTotal / float64(len(moment.Cells))
-	var GrowHeightAtAvg = GrowHeightAtTotal / float64(len(moment.Cells))
-	var EnergySpentOnReproducingAvg = EnergySpentOnReproducingTotal / float64(len(moment.Cells))
-	var PercentChanceWaitAvg = float64(PercentChanceWaitTotal) / float64(len(moment.Cells))
-	var ClockRateAvg = float64(ClockRateTotal) / float64(len(moment.Cells))
+	Log(LOGTYPE_PRINTGRID_SUMMARY, "%d cells total\n\n", len(WS.Cells))
+	Log(LOGTYPE_MAINLOOPSINGLE, "Cell Count: %d\n", len(WS.Cells))
+	var energyReproduceThresholdAvg = energyReproduceThresholdTotal / float64(len(WS.Cells))
+	var GrowCanopyAtAvg = GrowCanopyAtTotal / float64(len(WS.Cells))
+	var GrowHeightAtAvg = GrowHeightAtTotal / float64(len(WS.Cells))
+	var EnergySpentOnReproducingAvg = EnergySpentOnReproducingTotal / float64(len(WS.Cells))
+	var PercentChanceWaitAvg = float64(PercentChanceWaitTotal) / float64(len(WS.Cells))
+	var ClockRateAvg = float64(ClockRateTotal) / float64(len(WS.Cells))
 	var percentMoveAvg = float64(MoveChanceTotal) / float64(legsTotal)
-	var energyAvg = float64(energyTotal) / float64(len(moment.Cells))
-	var ageAvg = float64(ageTotal) / float64(len(moment.Cells))
-	var chloroplastsPercent = 100.0 * float64(chloroplastsTotal) / float64(len(moment.Cells))
+	var energyAvg = float64(energyTotal) / float64(len(WS.Cells))
+	var ageAvg = float64(ageTotal) / float64(len(WS.Cells))
+	var chloroplastsPercent = 100.0 * float64(chloroplastsTotal) / float64(len(WS.Cells))
 
 	Log(LOGTYPE_PRINTGRID_SUMMARY, "Average age: %6.1f\n", ageAvg)
 	Log(LOGTYPE_PRINTGRID_SUMMARY, "Average energy: %6.1f\n", energyAvg)
@@ -179,11 +179,11 @@ func PrintGrid(moment *Moment, z int) {
 	Log(LOGTYPE_PRINTGRID_SUMMARY, "Energy Reproduce Threshold Average: %6.1f\n", energyReproduceThresholdAvg)
 	Log(LOGTYPE_PRINTGRID_SUMMARY, "Energy Spent on Reproducing Average: %6.1f\n", EnergySpentOnReproducingAvg)
 	Log(LOGTYPE_PRINTGRID_SUMMARY, "Chloroplasts Percent: %6.1f\n", chloroplastsPercent)
-	Log(LOGTYPE_PRINTGRID_SUMMARY, "Canopy Percent: %6.1f\n", 100.0*float64(canopyTotal)/float64(len(moment.Cells)))
+	Log(LOGTYPE_PRINTGRID_SUMMARY, "Canopy Percent: %6.1f\n", 100.0*float64(canopyTotal)/float64(len(WS.Cells)))
 	Log(LOGTYPE_PRINTGRID_SUMMARY, "Grow Canopy At Average: %6.1f\n", GrowCanopyAtAvg)
-	Log(LOGTYPE_PRINTGRID_SUMMARY, "Height1 Percent: %6.1f\n", 100.0*float64(height1Total)/float64(len(moment.Cells)))
+	Log(LOGTYPE_PRINTGRID_SUMMARY, "Height1 Percent: %6.1f\n", 100.0*float64(height1Total)/float64(len(WS.Cells)))
 	Log(LOGTYPE_PRINTGRID_SUMMARY, "Grow Height At Average: %6.1f\n", GrowHeightAtAvg)
-	Log(LOGTYPE_PRINTGRID_SUMMARY, "Legs Percent: %6.1f\n", 100.0*float64(legsTotal)/float64(len(moment.Cells)))
+	Log(LOGTYPE_PRINTGRID_SUMMARY, "Legs Percent: %6.1f\n", 100.0*float64(legsTotal)/float64(len(WS.Cells)))
 	Log(LOGTYPE_PRINTGRID_SUMMARY, "Percent Chance to Move (with legs) Average: %6.1f\n", percentMoveAvg)
 	Log(LOGTYPE_PRINTGRID_SUMMARY, "New species so far: %d\n", SpeciesCounter)
 
@@ -201,11 +201,11 @@ func (p PairList) Len() int           { return len(p) }
 func (p PairList) Less(i, j int) bool { return p[i].Value < p[j].Value }
 func (p PairList) Swap(i, j int)      { p[i], p[j] = p[j], p[i] }
 
-func PrintSpeciesReport(moment *Moment, topXSpecies int) {
+func PrintSpeciesReport(WS *WorldState, topXSpecies int) {
 	var SpeciesIDToCount = make(map[string]int)
 	var SpeciesIDToSpecimen = make(map[string]*Cell)
-	for ci := range moment.Cells {
-		var cell = moment.Cells[ci]
+	for ci := range WS.Cells {
+		var cell = WS.Cells[ci]
 		var SpeciesIDString = string(cell.SpeciesID)
 		var speciesCount, exists = SpeciesIDToCount[SpeciesIDString]
 		if exists {

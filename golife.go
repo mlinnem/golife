@@ -27,7 +27,7 @@ var nonCellActionExecuterWG sync.WaitGroup
 
 var waitForCleaning sync.WaitGroup
 
-var momentNum = 0
+var WSNum = 0
 
 func startPersistentThreads() {
 	//set up nonCellActionExecutors
@@ -44,36 +44,41 @@ func startPersistentThreads() {
 	}
 }
 
-func transferLiveCellsToNextMoment() {
-	NextMoment.Cells = make([]*Cell, 0, len(CurrentMoment.Cells))
-	NextMoment.SpatialIndexSurfaceCover = [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell{}
-	NextMoment.SpatialIndexSolid = [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell{}
-	for _, CurrentMomentCell := range CurrentMoment.Cells {
+func transferLiveCellsToWS() {
+	//WS.Cells = make([]*Cell, 0, len(WS.Cells))
+	//WS.SpatialIndexSurfaceCover = [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell{}
+	//WS.SpatialIndexSolid = [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell{}
 
-		//This takes place of reaper function
-		Log(LOGTYPE_HIGHFREQUENCY, "a cell %d, has %6.2f energy\n", CurrentMomentCell.ID, CurrentMomentCell.Energy)
-		if CurrentMomentCell.Energy > 0 {
+	//This takes place of reaper function
+	Log(LOGTYPE_MAINLOOPSINGLE, "started turn with %d cells\n", len(WS.Cells))
+	for i := len(WS.Cells) - 1; i >= 0; i-- {
+		cell := WS.Cells[i]
+		Log(LOGTYPE_HIGHFREQUENCY, "a cell %d, has %6.2f energy\n", cell.ID, cell.Energy)
 
-			var NextMomentCell = CurrentMomentCell.ContinueOn()
-			NextMoment.Cells = append(NextMoment.Cells, NextMomentCell)
-			NextMoment.AddCellToSpatialIndex(NextMomentCell)
+		// Condition to decide if current element has to be deleted:
+		if cell.Energy <= 0 {
+			//cut cell out of list
+			WS.Cells = append(WS.Cells[:i],
+				WS.Cells[i+1:]...)
+			WS.RemoveCellFromSpatialIndex(cell)
 		}
+
 	}
-	Log(LOGTYPE_MAINLOOPSINGLE, "Transferred cells over to next moment by default, same loc\n")
+	Log(LOGTYPE_MAINLOOPSINGLE, " %d cells after culling \n", len(WS.Cells))
 }
 
-func feedCurrentMomentCellsToActionDecider() {
+func feedWSCellsToActionDecider() {
 	var startSlice = 0
 	var endSlice = CELLS_PER_BUNDLE
 	for {
-		if endSlice < len(CurrentMoment.Cells) {
+		if endSlice < len(WS.Cells) {
 			cellActionDeciderWG.Add(1)
-			cellsReadyForAction <- CurrentMoment.Cells[startSlice:endSlice]
+			cellsReadyForAction <- WS.Cells[startSlice:endSlice]
 			startSlice += CELLS_PER_BUNDLE
 			endSlice += CELLS_PER_BUNDLE
 		} else {
 			cellActionDeciderWG.Add(1)
-			cellsReadyForAction <- CurrentMoment.Cells[startSlice:]
+			cellsReadyForAction <- WS.Cells[startSlice:]
 			break
 		}
 	}
@@ -95,46 +100,47 @@ func main() {
 	}
 	defer profile.Start(profile.CPUProfile).Stop()
 
-	CurrentMoment = &Moment{}
-	NextMoment = &Moment{}
-	MomentBeingCleaned = &Moment{}
+	WS = &WorldState{}
+	//WSBeingCleaned = &WorldState{}
 
 	bulkGrabLock = &sync.Mutex{}
 
 	startPersistentThreads()
 
-	var t1all = time.Now()
-	for momentNum = 0; momentNum < MAX_MOMENTS; momentNum++ {
-		CurrentMoment.MomentNum = momentNum
+	//	WSBeingCleaned = WS
 
-		NextMoment.MomentNum = momentNum + 1
-		if momentNum%PRINTGRID_EVERY_N_TURNS == 0 {
-			PrintGrid(CurrentMoment, DEFAULT_PRINTGRID_DEPTH)
-			PrintSpeciesReport(CurrentMoment, NUM_TOP_SPECIES_TO_PRINT)
+	var t1all = time.Now()
+	for WSNum = 0; WSNum < MAX_WSS; WSNum++ {
+		WS.WSNum = WSNum
+
+		WS.WSNum = WSNum + 1
+		if WSNum%PRINTGRID_EVERY_N_TURNS == 0 {
+			PrintGrid(WS, DEFAULT_PRINTGRID_DEPTH)
+			PrintSpeciesReport(WS, NUM_TOP_SPECIES_TO_PRINT)
 		}
 		var t1a = time.Now()
 		//var t1 = time.Now()
-		Log(LOGTYPE_MAINLOOPSINGLE_PRIMARY, "moment %d...\n", momentNum)
-		//Assume all cells will be in same position in next moment
+		Log(LOGTYPE_MAINLOOPSINGLE_PRIMARY, "WS %d...\n", WSNum)
+		//Assume all cells will be in same position in next WS
 		//TODO: Should this be happening elsewhere?
-		transferLiveCellsToNextMoment()
+		transferLiveCellsToWS()
 
 		if TracedCell != nil && TracedCell.Energy <= 0 {
 			TracedCell = nil
 		}
-		if TracedCell == nil && len(NextMoment.Cells) > 0 {
-			TracedCell = NextMoment.Cells[0]
+		if TracedCell == nil && len(WS.Cells) > 0 {
+			TracedCell = WS.Cells[0]
 		}
 
-		feedCurrentMomentCellsToActionDecider()
+		feedWSCellsToActionDecider()
 
 		//NOT going to wait for all actions to be decided before executing. Decisions can trigger actions right away (prepare for locking needs...)
-		//wait for all actionPickers and actionExecuters to be done  (NextMoment should be fully populated now)
+		//wait for all actionPickers and actionExecuters to be done  (WS should be fully populated now)
 		cellActionDeciderWG.Wait()
 		cellActionExecuterWG.Wait()
 
 		//generate any nonCellActions that need to be generated
-		if momentNum == 0 {
+		if WSNum == 0 {
 			Log(LOGTYPE_MAINLOOPSINGLE, "Populating initial cells\n")
 			generateInitialNonCellActions(&nonCellActionExecuterWG)
 			//	close(queuedNonCellActions)
@@ -155,33 +161,33 @@ func main() {
 		nonCellActionExecuterWG.Wait()
 
 		Log(LOGTYPE_MAINLOOPSINGLE, "Non-cell Executers did their thing\n")
-		//NextMoment becomes current moment.
-		Log(LOGTYPE_MAINLOOPSINGLE, "Right before we switch to next moment")
-		OldMoment = CurrentMoment
-		CurrentMoment = NextMoment
+		//WS becomes current WS.
+		Log(LOGTYPE_MAINLOOPSINGLE, "Right before we switch to next WS")
+		//OldWS = WS
+		//WS = WS
 		var tClean1 = time.Now()
-		waitForCleaning.Wait()
+		//waitForCleaning.Wait()
 		var tClean2 = time.Now()
 		var durClean = tClean1.Sub(tClean2).Seconds()
 		Log(LOGTYPE_MAINLOOPSINGLE, "Waiting on cleaning took this long: %d\n", durClean)
 		var t2a = time.Now()
-		NextMoment = MomentBeingCleaned
-		MomentBeingCleaned = OldMoment
+		//WS = WSBeingCleaned
+		//WSBeingCleaned = OldWS
 		Log(LOGTYPE_MAINLOOPSINGLE, "Right after the switcheroo")
 		Log(LOGTYPE_MAINLOOPSINGLE, "About to wait for cleaning\n")
-		waitForCleaning.Add(1)
-		MomentBeingCleaned.ReturnCellsToPool()
-		go MomentBeingCleaned.Clean(&waitForCleaning)
+		//waitForCleaning.Add(1)
+		//WSBeingCleaned.ReturnCellsToPool()
+		//go WSBeingCleaned.Clean(&waitForCleaning)
 
 		var dura = t2a.Sub(t1a).Seconds()
 		Log(LOGTYPE_MAINLOOPSINGLE_PRIMARY, "Time of entire turn took %f\n", dura)
-		if len(CurrentMoment.Cells) == 0 {
+		if len(WS.Cells) == 0 {
 			Log(LOGTYPE_FAILURES, "Early termination due to all cells dying\n")
 			break
 		}
 	}
 
-	Log(LOGTYPE_FINALSTATS, "%d cells in final moment\n", len(CurrentMoment.Cells))
+	Log(LOGTYPE_FINALSTATS, "%d cells in final WS\n", len(WS.Cells))
 	var t2all = time.Now()
 
 	var durall = t2all.Sub(t1all).Seconds()
@@ -381,7 +387,7 @@ func reproduce(cell *Cell) {
 	for _, direction := range GetSurroundingDirectionsInRandomOrder() {
 		var xTry = cell.X + direction.X
 		var yTry = cell.Y + direction.Y
-		if !NextMoment.IsSolidOrCovered(xTry, yTry, z) {
+		if !WS.IsSolidOrCovered(xTry, yTry, z) {
 			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Making baby from %d, %d -> %d, %d\n", cell.ID, cell.X, cell.Y, xTry, yTry)
 			var babyCell = CellPool.Borrow()
 			babyCell.Energy = cell.EnergySpentOnReproducing - REPRODUCE_COST
@@ -470,8 +476,8 @@ func reproduce(cell *Cell) {
 				Log(LOGTYPE_SPECIALEVENT, "orig grow canopy threshold: %f, new grow canopy threshold: %f\n", cell.X_originalGrowCanopyAt, babyCell.X_originalGrowCanopyAt)
 
 			}
-			NextMoment.Cells = append(NextMoment.Cells, babyCell)
-			NextMoment.AddCellToSpatialIndex(babyCell)
+			WS.Cells = append(WS.Cells, babyCell)
+			WS.AddCellToSpatialIndex(babyCell)
 			cell.DecreaseEnergy(cell.EnergySpentOnReproducing)
 			return
 		}
@@ -481,7 +487,7 @@ func reproduce(cell *Cell) {
 
 func maintainAllCells() {
 	Log(LOGTYPE_MAINLOOPSINGLE, "Starting maintain\n")
-	for _, cell := range CurrentMoment.Cells {
+	for _, cell := range WS.Cells {
 		cell.Maintain()
 	}
 	Log(LOGTYPE_MAINLOOPSINGLE, "Ending maintain\n")
@@ -497,9 +503,9 @@ func maintainAllCells() {
 //	Log(LOGTYPE_DEBUGCONCURRENCY, "%s Grabbed successfully\n", who)
 //	for y := startY; y < endY+1; y++ {
 //		for x := startX; x < endX+1; x++ {
-//			if !NextMoment.IsOutOfBounds(x, y, z) {
+//			if !WS.IsOutOfBounds(x, y, z) {
 //				Log(LOGTYPE_DEBUGCONCURRENCY, "%s is going to lock %d, %d\n", who, x, y)
-//				//NextMomentYXLocks[y][x].Lock()
+//				//WSYXLocks[y][x].Lock()
 //			}
 //		}
 //	}
@@ -524,7 +530,7 @@ func spontaneouslyGenerateCell() {
 
 		var xTry = rand.Intn(GRID_WIDTH)
 		var yTry = rand.Intn(GRID_HEIGHT)
-		if !NextMoment.IsSolidOrCovered(xTry, yTry, z) {
+		if !WS.IsSolidOrCovered(xTry, yTry, z) {
 			foundSpotYet = true
 			newCell.X = xTry
 			newCell.Y = yTry
@@ -564,9 +570,9 @@ func spontaneouslyGenerateCell() {
 			newCell.X_originalClockRate = newCell.ClockRate
 			newCell.X_originalGrowCanopyAt = newCell.GrowCanopyAt
 
-			NextMoment.Cells = append(NextMoment.Cells, newCell)
-			Log(LOGTYPE_HIGHFREQUENCY, "Added cell %d to next moment\n", newCell.ID)
-			NextMoment.AddCellToSpatialIndex(newCell)
+			WS.Cells = append(WS.Cells, newCell)
+			Log(LOGTYPE_HIGHFREQUENCY, "Added cell %d to next WS\n", newCell.ID)
+			WS.AddCellToSpatialIndex(newCell)
 		}
 		tries++
 		if tries > MAX_TRIES_TO_FIND_EMPTY_GRID_COORD {
@@ -629,12 +635,12 @@ func Round(val float64, roundOn float64, places int) (newVal float64) {
 const SHINE_FREQUENCY = 5
 
 func shineOnAllCells() {
-	if momentNum%SHINE_FREQUENCY == 0 {
+	if WSNum%SHINE_FREQUENCY == 0 {
 		Log(LOGTYPE_MAINLOOPSINGLE, "Starting shine\n")
 		//TODO: This could stand to be refactored a bit
-		//TODO: Changed for NextMoment to current moment, but might be wrong...
+		//TODO: Changed for WS to current WS, but might be wrong...
 
-		var isDayTime = momentNum%100 <= 50
+		var isDayTime = WSNum%100 <= 50
 		var wg = &sync.WaitGroup{}
 		for yi := 0; yi < GRID_HEIGHT; yi++ {
 			wg.Add(1)
@@ -679,7 +685,7 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 	//TODO: Need to rejigger to take into account 3rd dimension better
 	var z = 0
 
-	var cell = CurrentMoment.SpatialIndexSurfaceCover[z][y][x]
+	var cell = WS.SpatialIndexSurfaceCover[z][y][x]
 
 	//If we have a cell that is tall...
 	if cell != nil && cell.Chloroplasts == true && cell.Height == 1 {
@@ -700,8 +706,8 @@ func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
 				if relativeX == 0 && relativeY == 0 {
 					continue
 				}
-				if !CurrentMoment.IsOutOfBounds(xTry, yTry, z) && CurrentMoment.IsSolidOrCovered(xTry, yTry, z) && CurrentMoment.SpatialIndexSurfaceCover[z][yTry][xTry].Canopy == true {
-					var surroundingCell = CurrentMoment.SpatialIndexSurfaceCover[z][yTry][xTry]
+				if !WS.IsOutOfBounds(xTry, yTry, z) && WS.IsSolidOrCovered(xTry, yTry, z) && WS.SpatialIndexSurfaceCover[z][yTry][xTry].Canopy == true {
+					var surroundingCell = WS.SpatialIndexSurfaceCover[z][yTry][xTry]
 					surroundingCellsWithCanopiesAndMe[numSurrounders] = surroundingCell
 					numSurrounders++
 				}
@@ -725,7 +731,7 @@ func newerShineMethod(x int, y int, shineAmountForThisSquare float64) {
 		//TODO: This needs to handle roofs
 		shineAmountLeft = shineAmountLeft/2 + remaining
 		if z == 0 {
-			var cell = CurrentMoment.SpatialIndexSurfaceCover[z][y][x]
+			var cell = WS.SpatialIndexSurfaceCover[z][y][x]
 			if cell != nil && cell.Chloroplasts == true {
 				cell.IncreaseEnergy(shineAmountLeft)
 			}
@@ -740,15 +746,15 @@ func giveEnergyToNonSolidCellsAtThisLevel(x int, y int, z int, shineAmountForThi
 	var surroundingCellsWithCanopiesAndMe = &[SURROUNDINGS_SIZE]*Cell{} //surroundingsPool.Borrow()
 	var numSurrounders = 0
 
-	//var cell = CurrentMoment.SpatialIndexSurfaceCover[z][y][x]
+	//var cell = WS.SpatialIndexSurfaceCover[z][y][x]
 
 	for relativeY := -1; relativeY < 2; relativeY++ {
 		for relativeX := -1; relativeX < 2; relativeX++ {
 			var xTry = x + relativeX
 			var yTry = y + relativeY
 
-			if !CurrentMoment.IsOutOfBounds(xTry, yTry, z) && CurrentMoment.IsCovered(xTry, yTry, z) && CurrentMoment.SpatialIndexSurfaceCover[z][yTry][xTry].Canopy == true {
-				var surroundingCell = CurrentMoment.SpatialIndexSurfaceCover[z][yTry][xTry]
+			if !WS.IsOutOfBounds(xTry, yTry, z) && WS.IsCovered(xTry, yTry, z) && WS.SpatialIndexSurfaceCover[z][yTry][xTry].Canopy == true {
+				var surroundingCell = WS.SpatialIndexSurfaceCover[z][yTry][xTry]
 				surroundingCellsWithCanopiesAndMe[numSurrounders] = surroundingCell
 				numSurrounders++
 			}
@@ -770,9 +776,9 @@ func giveEnergyToNonSolidCellsAtThisLevel(x int, y int, z int, shineAmountForThi
 //func unlockYXRangeInclusive(startY int, endY int, startX int, endX int, who string) {
 //	for y := startY; y < endY+1; y++ {
 //		for x := startX; x < endX+1; x++ {
-//			if !NextMoment.IsOutOfBounds(x, y) {
+//			if !WS.IsOutOfBounds(x, y) {
 //				Log(LOGTYPE_DEBUGCONCURRENCY, "%s is going to unlock %d, %d\n", who, x, y)
-//				//	NextMomentYXLocks[y][x].Unlock()
+//				//	WSYXLocks[y][x].Unlock()
 //			}
 //		}
 //	}
