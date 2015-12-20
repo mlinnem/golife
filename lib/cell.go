@@ -24,6 +24,9 @@ const GROWCANOPY_COST = 60
 const GROWLEGS_COST = 45
 const GROWHEIGHT_COST = 200
 
+//----OTHER-------------
+const ACTUAL_WAIT_MULTIPLIER = 3
+
 //TODO: Make it easy to add a field and have it appear in all the right places Re: copying and whatnot
 
 //TODO: Might need to do audit for proper handling of 'Z'

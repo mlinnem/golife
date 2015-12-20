@@ -2,33 +2,25 @@ package lib
 
 var WS *WorldState
 
+//---WORLD_CONDITIONS---
+const MAX_CELL_COUNT = 90000
+
+const SHINE_ENERGY_AMOUNT = 1.0
+
+const INITIAL_CELL_COUNT = 2000
+
+const GRID_DEPTH = 2
+const GRID_WIDTH = 300
+const GRID_HEIGHT = 50
+
+const MAX_TRIES_TO_FIND_EMPTY_GRID_COORD = 100
+
 type WorldState struct {
 	WSNum                    int
 	Cells                    []*Cell
 	SpatialIndexSolid        [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell
 	SpatialIndexSurfaceCover [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell
-	//SpatialIndexSurfaceCoverNonSolid     [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell
-	//SpatialIndexSurfaceCover[GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell
-	//	atmosphericMaterial float64
 }
-
-//func (WS *WorldState) SetTotalAtmosphericMaterial(amt float64) {
-//	WS.atmosphericMaterial = amt
-//}
-
-//func (WS *WorldState) GetTotalAtmosphericMaterial(amt float64) float64 {
-//	return WS.atmosphericMaterial
-//}
-
-//func (WS *WorldState) ReleaseMaterialToAtmosphere(amt float64) {
-//	WS.atmosphericMaterial += amt
-//}
-
-//TODO: Kind of weird to always return exactly what is available
-//func (WS *WorldState) TakeMaterialFromAtmosphere(amt float64) float64 {
-//	WS.atmosphericMaterial -= amt
-//	return amt
-//}
 
 //TODO: Will need to be revised as move gets more sophisticated
 func (ws *WorldState) CanMoveHere(cell *Cell, targetX int, targetY int, targetZ int) bool {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
 	"sync"
@@ -11,16 +12,44 @@ import (
 	. "github.com/mlinnem/golife/main/lib"
 )
 
-var bulkGrabLock *sync.Mutex
+const RANDOM_SEED = false
+
+const MAX_WSS = 19000
+
+//---PERFORMANCE_VARIABLES---
+//--GENERAL---
+
+//NOTE: If this is on, CellActionDecider can't be parallel
+const SERIAL_ACTIONTOEXECUTION_BRIDGE = false
+const DEFAULT_BRIDGE_ACTIONCAPACITY = MAX_CELL_COUNT
+
+const PERSISTENT_CELLACTIONDECIDER = true
+const PARALLELIZE_DECIDER = false
+const CELLACTIONDECIDER_ROUTINECOUNT = 5
+const CELLS_PER_CELLDECIDERBUNDLE = 1000
+
+const PERSISTENT_CELLACTIONEXECUTER = false
+const PARALLELIZE_CELLEXECUTER = false //Probably not good to say true for thread-safety reasons
+const CELLACTIONEXECUTER_ROUTINECOUNT = 1
+
+const PERSISTENT_NONCELLACTIONEXECUTER = false
+const PARALLELIZE_NONCELLEXECUTER = false //Probably not good to say true for thread-safety reasons
+const NONCELLACTIONEXECUTER_ROUTINECOUNT = 1
+
+//--SPECIFIC--
+const PARALLELIZE_SHINE_BY_ROW = true
 
 var cellActionExecuterWG sync.WaitGroup
 
-var cellsReadyForAction = make(chan []*Cell, MAX_CELL_COUNT)
+var cellsReadyToDecide = make(chan []*Cell, MAX_CELL_COUNT)
 
 var queuedNonCellActions []*NonCellAction
-var pendingNonCellActions = make(chan *NonCellAction, MAX_CELL_COUNT)
+var nonCellActionsReadyToExecute = make(chan *NonCellAction, MAX_CELL_COUNT)
 
-var pendingCellActions = make(chan *CellAction, MAX_CELL_COUNT)
+var serialQueuedCellActionsLength = 0
+var serialQueuedCellActions []*CellAction
+var queuedCellActions = make(chan *CellAction, MAX_CELL_COUNT)
+var cellActionsReadyToExecute = make(chan *CellAction, MAX_CELL_COUNT)
 
 var cellActionDeciderWG sync.WaitGroup
 var nonCellActionExecuterWG sync.WaitGroup
@@ -29,158 +58,220 @@ var waitForCleaning sync.WaitGroup
 
 var WSNum = 0
 
-func startPersistentThreads() {
-	//set up nonCellActionExecutors
-
-	for i := 0; i < NONCELLACTIONDECIDER_ROUTINECOUNT; i++ {
-		go nonCellActionExecuter(&nonCellActionExecuterWG)
+func startPersistentGoRoutines() {
+	if PERSISTENT_CELLACTIONDECIDER {
+		startCellActionDeciders()
 	}
-	//set up cellActionDeciders to pull from readyCells channel (freely)
-	for i := 0; i < CELLACTIONDECIDER_ROUTINECOUNT; i++ {
-		go cellActionDecider(&cellActionDeciderWG)
+	if PERSISTENT_CELLACTIONEXECUTER {
+		startCellActionExecuters()
 	}
-	for i := 0; i < CELLACTIONEXECUTER_ROUTINECOUNT; i++ {
-		go cellActionExecuter(&cellActionExecuterWG)
+	if PERSISTENT_NONCELLACTIONEXECUTER {
+		startNonCellActionExecuters()
 	}
 }
 
-func transferLiveCellsToWS() {
-	//WS.Cells = make([]*Cell, 0, len(WS.Cells))
-	//WS.SpatialIndexSurfaceCover = [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell{}
-	//WS.SpatialIndexSolid = [GRID_DEPTH][GRID_HEIGHT][GRID_WIDTH]*Cell{}
+func startCellActionDeciders() {
+	for i := 0; i < CELLACTIONDECIDER_ROUTINECOUNT; i++ {
+		go cellActionDecider()
+	}
+}
 
-	//This takes place of reaper function
+func startCellActionExecuters() {
+	for i := 0; i < CELLACTIONEXECUTER_ROUTINECOUNT; i++ {
+		go cellActionExecuter()
+	}
+}
+
+func startNonCellActionExecuters() {
+	for i := 0; i < NONCELLACTIONEXECUTER_ROUTINECOUNT; i++ {
+		go nonCellActionExecuter(&nonCellActionExecuterWG)
+	}
+}
+
+func removeDeadCells() {
 	Log(LOGTYPE_MAINLOOPSINGLE, "started turn with %d cells\n", len(WS.Cells))
 	for i := len(WS.Cells) - 1; i >= 0; i-- {
 		cell := WS.Cells[i]
 		Log(LOGTYPE_HIGHFREQUENCY, "a cell %d, has %6.2f energy\n", cell.ID, cell.Energy)
-
-		// Condition to decide if current element has to be deleted:
 		if cell.Energy <= 0 {
-			//cut cell out of list
 			WS.Cells = append(WS.Cells[:i],
 				WS.Cells[i+1:]...)
 			WS.RemoveCellFromSpatialIndex(cell)
 		}
-
 	}
 	Log(LOGTYPE_MAINLOOPSINGLE, " %d cells after culling \n", len(WS.Cells))
+	updateTracedCell()
 }
 
-func feedWSCellsToActionDecider() {
+func sendAllCellsToDecider() {
+	if SERIAL_ACTIONTOEXECUTION_BRIDGE {
+		//	serialQueuedCellActions = make([]*CellAction, 0, DEFAULT_BRIDGE_ACTIONCAPACITY)
+		serialQueuedCellActionsLength = 0
+	}
+
 	var startSlice = 0
-	var endSlice = CELLS_PER_BUNDLE
+	var endSlice = CELLS_PER_CELLDECIDERBUNDLE
+	var cellsToSend []*Cell
 	for {
 		if endSlice < len(WS.Cells) {
-			cellActionDeciderWG.Add(1)
-			cellsReadyForAction <- WS.Cells[startSlice:endSlice]
-			startSlice += CELLS_PER_BUNDLE
-			endSlice += CELLS_PER_BUNDLE
+			cellsToSend = WS.Cells[startSlice:endSlice]
+			sendCellSliceToDecider(cellsToSend)
+			startSlice += CELLS_PER_CELLDECIDERBUNDLE
+			endSlice += CELLS_PER_CELLDECIDERBUNDLE
 		} else {
-			cellActionDeciderWG.Add(1)
-			cellsReadyForAction <- WS.Cells[startSlice:]
+			cellsToSend = WS.Cells[startSlice:]
+			sendCellSliceToDecider(cellsToSend)
 			break
 		}
 	}
 }
 
-func feedQueuedNonCellActionsToExecuter() {
+func sendCellSliceToDecider(cellsToSend []*Cell) {
+	if PERSISTENT_CELLACTIONDECIDER {
+		cellActionDeciderWG.Add(1)
+		cellsReadyToDecide <- cellsToSend
+	} else if PARALLELIZE_DECIDER {
+		cellActionDeciderWG.Add(1)
+		go decideForTheseCells(cellsToSend, true)
+	} else {
+		decideForTheseCells(cellsToSend, false)
+	}
+}
+
+func sendAllCellActionsToExecuter() {
+	if SERIAL_ACTIONTOEXECUTION_BRIDGE {
+		for i := 0; i < serialQueuedCellActionsLength; i++ {
+			sendSingleCellActionToExecuter(serialQueuedCellActions[i])
+		}
+	} else {
+		queuedCellActions <- &CellAction{actionType: specialcellaction_done}
+		for {
+			var action = <-queuedCellActions
+			//TODO: This could be more Golang idiomatic. Not sure if it affects performance though
+			if action.actionType == specialcellaction_done {
+				break
+			} else {
+				sendSingleCellActionToExecuter(action)
+			}
+		}
+	}
+}
+
+func sendSingleCellActionToExecuter(action *CellAction) {
+	if PERSISTENT_CELLACTIONEXECUTER {
+		cellActionExecuterWG.Add(1)
+		cellActionsReadyToExecute <- action
+	} else if PARALLELIZE_CELLEXECUTER {
+		cellActionExecuterWG.Add(1)
+		go executeSingleCellAction(action, true)
+	} else {
+		executeSingleCellAction(action, false)
+	}
+}
+
+func sendAllNonCellActionsToExecuter() {
 	for ai := 0; ai < len(queuedNonCellActions); ai++ {
 		var nonCellAction = queuedNonCellActions[ai]
-		pendingNonCellActions <- nonCellAction
+		if PERSISTENT_NONCELLACTIONEXECUTER {
+			nonCellActionExecuterWG.Add(1)
+			nonCellActionsReadyToExecute <- nonCellAction
+		} else if PARALLELIZE_NONCELLEXECUTER {
+			nonCellActionExecuterWG.Add(1)
+			go executeSingleNonCellAction(nonCellAction, true)
+		} else {
+			executeSingleNonCellAction(nonCellAction, false)
+		}
 	}
 	//empty queue now that they've been sent. Probably better way to do this
 	queuedNonCellActions = []*NonCellAction{}
 }
 
+func updateTracedCell() {
+	if TracedCell != nil && TracedCell.Energy <= 0 {
+		TracedCell = nil
+	}
+	if TracedCell == nil && len(WS.Cells) > 0 {
+		TracedCell = WS.Cells[0]
+	}
+}
+
+func generateSystemNonCellActions() {
+	//generate any nonCellActions that need to be generated
+	if WSNum == 0 {
+		Log(LOGTYPE_MAINLOOPSINGLE, "Populating initial cells\n")
+		generateInitialNonCellActions(&nonCellActionExecuterWG)
+		//	close(queuedNonCellActions)
+	} else {
+		Log(LOGTYPE_MAINLOOPSINGLE, "Generating cell maintenance and other stuff\n")
+		generateSunshineAction(&nonCellActionExecuterWG)
+		generateCellMaintenanceAction(&nonCellActionExecuterWG)
+		//TODO: Testing reap removal
+		//generateGrimReaperAction(&nonCellActionExecuterWG)
+	}
+}
+
+func initializeState() {
+	WS = &WorldState{}
+
+	startPersistentGoRoutines()
+
+	if SERIAL_ACTIONTOEXECUTION_BRIDGE {
+		serialQueuedCellActionsLength = 0
+		serialQueuedCellActions = make([]*CellAction, DEFAULT_BRIDGE_ACTIONCAPACITY, DEFAULT_BRIDGE_ACTIONCAPACITY)
+	}
+}
+
 func main() {
-	//FIRST-TIME INIT
 	if RANDOM_SEED {
 		rand.Seed(int64(time.Now().Second()))
 	}
 	defer profile.Start(profile.CPUProfile).Stop()
 
-	WS = &WorldState{}
-	//WSBeingCleaned = &WorldState{}
+	var startTime = time.Now()
 
-	bulkGrabLock = &sync.Mutex{}
+	initializeState()
 
-	startPersistentThreads()
-
-	//	WSBeingCleaned = WS
-
-	var t1all = time.Now()
 	for WSNum = 0; WSNum < MAX_WSS; WSNum++ {
 		WS.WSNum = WSNum
 
-		WS.WSNum = WSNum + 1
 		if WSNum%PRINTGRID_EVERY_N_TURNS == 0 {
 			PrintGrid(WS, DEFAULT_PRINTGRID_DEPTH)
 			PrintSpeciesReport(WS, NUM_TOP_SPECIES_TO_PRINT)
 		}
-		var t1a = time.Now()
-		//var t1 = time.Now()
 		Log(LOGTYPE_MAINLOOPSINGLE_PRIMARY, "WS %d...\n", WSNum)
-		//Assume all cells will be in same position in next WS
-		//TODO: Should this be happening elsewhere?
-		transferLiveCellsToWS()
 
-		if TracedCell != nil && TracedCell.Energy <= 0 {
-			TracedCell = nil
-		}
-		if TracedCell == nil && len(WS.Cells) > 0 {
-			TracedCell = WS.Cells[0]
-		}
+		Log(LOGTYPE_MAINLOOPSINGLE, "Start of turn upkeep ...\n", WSNum)
 
-		feedWSCellsToActionDecider()
+		removeDeadCells()
 
-		//NOT going to wait for all actions to be decided before executing. Decisions can trigger actions right away (prepare for locking needs...)
-		//wait for all actionPickers and actionExecuters to be done  (WS should be fully populated now)
+		Log(LOGTYPE_MAINLOOPSINGLE, "Start deciding...\n")
+
+		sendAllCellsToDecider()
+
+		Log(LOGTYPE_MAINLOOPSINGLE, "Waiting for decisions to finish ...\n")
 		cellActionDeciderWG.Wait()
+		Log(LOGTYPE_MAINLOOPSINGLE, "Decisions finished.\n")
+
+		sendAllCellActionsToExecuter()
+
+		Log(LOGTYPE_MAINLOOPSINGLE, "Waiting for execution to finish...\n")
 		cellActionExecuterWG.Wait()
+		Log(LOGTYPE_MAINLOOPSINGLE, "Execution finished.\n")
+		//}
 
-		//generate any nonCellActions that need to be generated
-		if WSNum == 0 {
-			Log(LOGTYPE_MAINLOOPSINGLE, "Populating initial cells\n")
-			generateInitialNonCellActions(&nonCellActionExecuterWG)
-			//	close(queuedNonCellActions)
-		} else {
-			Log(LOGTYPE_MAINLOOPSINGLE, "Generating cell maintenance and other stuff\n")
-			generateSunshineAction(&nonCellActionExecuterWG)
-			generateCellMaintenanceAction(&nonCellActionExecuterWG)
-			//TODO: Testing reap removal
-			//generateGrimReaperAction(&nonCellActionExecuterWG)
-		}
-		//feed waitingNonCellActions to readyNonCellActions
-		Log(LOGTYPE_MAINLOOPSINGLE, "Dumping non-cell actions into working queue (if any)\n")
+		Log(LOGTYPE_MAINLOOPSINGLE, "Generating System NonCellActions...\n")
+		generateSystemNonCellActions()
+		Log(LOGTYPE_MAINLOOPSINGLE, "Generating NonCellActions Finished.\n")
 
-		feedQueuedNonCellActionsToExecuter()
+		Log(LOGTYPE_MAINLOOPSINGLE, "Feeding NonCellActions to nonCellActionExecuter(if any)\n")
+		sendAllNonCellActionsToExecuter()
 
-		Log(LOGTYPE_MAINLOOPSINGLE, "Transferred to non-cell executers...\n")
-		//wait for all non-cell actions to be done
+		Log(LOGTYPE_MAINLOOPSINGLE, "Waiting for NonCellActionExecuter to finish...\n")
 		nonCellActionExecuterWG.Wait()
-
 		Log(LOGTYPE_MAINLOOPSINGLE, "Non-cell Executers did their thing\n")
-		//WS becomes current WS.
-		Log(LOGTYPE_MAINLOOPSINGLE, "Right before we switch to next WS")
-		//OldWS = WS
-		//WS = WS
-		var tClean1 = time.Now()
-		//waitForCleaning.Wait()
-		var tClean2 = time.Now()
-		var durClean = tClean1.Sub(tClean2).Seconds()
-		Log(LOGTYPE_MAINLOOPSINGLE, "Waiting on cleaning took this long: %d\n", durClean)
-		var t2a = time.Now()
-		//WS = WSBeingCleaned
-		//WSBeingCleaned = OldWS
-		Log(LOGTYPE_MAINLOOPSINGLE, "Right after the switcheroo")
-		Log(LOGTYPE_MAINLOOPSINGLE, "About to wait for cleaning\n")
-		//waitForCleaning.Add(1)
-		//WSBeingCleaned.ReturnCellsToPool()
-		//go WSBeingCleaned.Clean(&waitForCleaning)
 
-		var dura = t2a.Sub(t1a).Seconds()
-		Log(LOGTYPE_MAINLOOPSINGLE_PRIMARY, "Time of entire turn took %f\n", dura)
+		Log(LOGTYPE_MAINLOOPSINGLE, "Moment finished\n")
+
 		if len(WS.Cells) == 0 {
 			Log(LOGTYPE_FAILURES, "Early termination due to all cells dying\n")
 			break
@@ -188,10 +279,10 @@ func main() {
 	}
 
 	Log(LOGTYPE_FINALSTATS, "%d cells in final WS\n", len(WS.Cells))
-	var t2all = time.Now()
 
-	var durall = t2all.Sub(t1all).Seconds()
-	Log(LOGTYPE_FINALSTATS, "Time of entire run took %f\n", durall)
+	var endTime = time.Now()
+	var fullDuration = endTime.Sub(startTime).Seconds()
+	Log(LOGTYPE_FINALSTATS, "Time of entire run took %f\n", fullDuration)
 }
 
 //CELL-ACTION DECIDER
@@ -209,6 +300,7 @@ const (
 	cellaction_wait             = iota
 	cellaction_reproduce        = iota
 	cellaction_moverandom       = iota
+	specialcellaction_done      = iota
 )
 
 func getCellActionName(cellActionType int) string {
@@ -233,73 +325,122 @@ func getCellActionName(cellActionType int) string {
 
 }
 
-func cellActionDecider(wg *sync.WaitGroup) {
+//A bundle of length 0 is the signal to stop
+func cellActionDecider() {
 	for {
-		var cellSlice = <-cellsReadyForAction
-		for _, cell := range cellSlice {
-			if cell.TimeLeftToWait > 0 {
-				cell.CountDown_TimeLeftToWait()
+		var cellDeciderBundle = <-cellsReadyToDecide
+		decideForTheseCells(cellDeciderBundle, true)
+	}
+}
+
+func decideForTheseCells(cellDeciderBundle []*Cell, asynchronous bool) {
+	for _, cell := range cellDeciderBundle {
+		if cell.TimeLeftToWait > 0 {
+			cell.CountDown_TimeLeftToWait()
+		} else {
+			var cellAction = decideSingleCell(cell)
+			if cellAction != nil {
+				LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: sending action '%s'\n", cell.ID, getCellActionName(cellAction.actionType))
+				//TODO: Is this safe when executer is persistent?
+				if SERIAL_ACTIONTOEXECUTION_BRIDGE {
+					serialQueuedCellActions[serialQueuedCellActionsLength] = cellAction
+					serialQueuedCellActionsLength++
+				} else {
+					queuedCellActions <- cellAction
+				}
 			} else {
-				var cellAction *CellAction
-				if cell.IsReadyToGrowHeight() {
-					cellAction = &CellAction{cell, cellaction_growheight}
-				} else if cell.IsReadyToGrowCanopy() {
-					cellAction = &CellAction{cell, cellaction_growcanopy}
-				} else if cell.IsReadyToGrowLegs() {
-					cellAction = &CellAction{cell, cellaction_growlegs}
-				} else if cell.IsReadyToGrowChloroplasts() {
-					cellAction = &CellAction{cell, cellaction_growchloroplasts}
-				} else if cell.IsTimeToReproduce() {
-					cellAction = &CellAction{cell, cellaction_reproduce}
-				} else if cell.WantsToAndCanMove() {
-					cellAction = &CellAction{cell, cellaction_moverandom}
-				} else if cell.ShouldWait() {
-					cellAction = &CellAction{cell, cellaction_wait}
-				} else {
-					//no action at all. Hopefully don't need to submit a null action
-				}
-
-				LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: PAY THINKING\n", cell.ID)
-				cell.DecreaseEnergy(THINKING_COST)
-				cell.IncreaseWaitTime(cell.ClockRate - 1)
-				if cellAction != nil {
-					cellActionExecuterWG.Add(1)
-					LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: sending action '%s'\n", cell.ID, getCellActionName(cellAction.actionType))
-					pendingCellActions <- cellAction
-				} else {
-					LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: NO ACTION\n", cell.ID)
-
-				}
-				//TODO: Make sure not to do off-by-one here. Clock 1 should be every 1 turn
+				LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: NO ACTION\n", cell.ID)
 			}
 		}
-		wg.Done()
+	}
+	if asynchronous {
+		cellActionDeciderWG.Done()
+	}
+}
+
+func decideSingleCell(cell *Cell) *CellAction {
+	var cellAction *CellAction
+	if cell.IsReadyToGrowHeight() {
+		cellAction = &CellAction{cell, cellaction_growheight}
+	} else if cell.IsReadyToGrowCanopy() {
+		cellAction = &CellAction{cell, cellaction_growcanopy}
+	} else if cell.IsReadyToGrowLegs() {
+		cellAction = &CellAction{cell, cellaction_growlegs}
+	} else if cell.IsReadyToGrowChloroplasts() {
+		cellAction = &CellAction{cell, cellaction_growchloroplasts}
+	} else if cell.IsTimeToReproduce() {
+		cellAction = &CellAction{cell, cellaction_reproduce}
+	} else if cell.WantsToAndCanMove() {
+		cellAction = &CellAction{cell, cellaction_moverandom}
+	} else if cell.ShouldWait() {
+		cellAction = &CellAction{cell, cellaction_wait}
+	} else {
+		//no action at all. Hopefully don't need to submit a null action
+	}
+
+	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: PAY THINKING\n", cell.ID)
+	cell.DecreaseEnergy(THINKING_COST)
+	cell.IncreaseWaitTime(cell.ClockRate - 1)
+	return cellAction
+}
+
+func NilChecker(slice []*CellAction, stamp string) {
+	for i, element := range slice {
+		if element == nil {
+			log.Printf("Element %d is nil in detectotron: %s\n", i, stamp)
+			QueuedCellAction_Printer(slice, "EMERGENCY CHECK")
+		}
+	}
+}
+
+func QueuedCellAction_Printer(slice []*CellAction, stamp string) {
+	log.Printf("%s\n", stamp)
+	for i, element := range slice {
+		if element == nil {
+			log.Printf("\tElement %d is nil in detectotron: %s\n", i, stamp)
+		}
+		if element != nil {
+			log.Printf("\tCellAction %d is for Cell %d, which as %f energy: Action is %s...(%s)\n", i, element.cell.ID, element.cell.Energy, getCellActionName(element.actionType), stamp)
+		}
 	}
 }
 
 //CELL-ACTION EXECUTER
 
-func cellActionExecuter(wg *sync.WaitGroup) {
+func cellActionExecuter() {
 	for {
-		var cellAction = <-pendingCellActions
-		var cell = cellAction.cell
-		switch cellAction.actionType {
-		case cellaction_reproduce:
-			reproduce(cellAction.cell)
-		case cellaction_growcanopy:
-			cell.GrowCanopy()
-		case cellaction_growheight:
-			cell.GrowHeight()
-		case cellaction_growchloroplasts:
-			cell.GrowChloroplasts()
-		case cellaction_wait:
-			cell.Wait()
-		case cellaction_growlegs:
-			cell.GrowLegs()
-		case cellaction_moverandom:
-			cell.MoveRandom()
-		}
-		wg.Done()
+		var cellAction = <-cellActionsReadyToExecute
+		executeSingleCellAction(cellAction, true)
+	}
+}
+
+func executeSingleCellAction(cellAction *CellAction, asynchronous bool) {
+	//TODO: Shouldn't be getting nil cell actions. Figure out what's up
+	//if cellAction == nil {
+	//	return
+	//}
+
+	var cell = cellAction.cell
+
+	switch cellAction.actionType {
+	case cellaction_reproduce:
+		reproduce(cellAction.cell)
+	case cellaction_growcanopy:
+		cell.GrowCanopy()
+	case cellaction_growheight:
+		cell.GrowHeight()
+	case cellaction_growchloroplasts:
+		cell.GrowChloroplasts()
+	case cellaction_wait:
+		cell.Wait()
+	case cellaction_growlegs:
+		cell.GrowLegs()
+	case cellaction_moverandom:
+		cell.MoveRandom()
+	}
+
+	if asynchronous {
+		cellActionExecuterWG.Done()
 	}
 }
 
@@ -318,7 +459,6 @@ const (
 func generateInitialNonCellActions(wg *sync.WaitGroup) {
 	for i := 0; i < INITIAL_CELL_COUNT; i++ {
 		//TODO: is this efficient? Maybe get rid of struct and use raw consts
-		wg.Add(1)
 		queuedNonCellActions = append(queuedNonCellActions, &NonCellAction{noncellaction_spontaneouslyPlaceCell})
 	}
 }
@@ -326,29 +466,33 @@ func generateInitialNonCellActions(wg *sync.WaitGroup) {
 func generateSunshineAction(wg *sync.WaitGroup) {
 	//TODO for now this action is atom. Could break it up later.
 	queuedNonCellActions = append(queuedNonCellActions, &NonCellAction{noncellaction_shineOnAllCells})
-	wg.Add(1)
 }
 
 func generateCellMaintenanceAction(wg *sync.WaitGroup) {
 	queuedNonCellActions = append(queuedNonCellActions, &NonCellAction{noncellaction_cellMaintenance})
-	wg.Add(1)
 }
 
 func nonCellActionExecuter(wg *sync.WaitGroup) {
 	for {
-		var nonCellAction = <-pendingNonCellActions
-		//route it to function depending on its type
-		switch nonCellAction.actionType {
-		case noncellaction_spontaneouslyPlaceCell:
-			spontaneouslyGenerateCell()
-		case noncellaction_shineOnAllCells:
-			shineOnAllCells()
-		case noncellaction_cellMaintenance:
-			//TODO
-			maintainAllCells()
-		}
+		var nonCellAction = <-nonCellActionsReadyToExecute
+		executeSingleNonCellAction(nonCellAction, true)
+	}
+}
 
-		wg.Done()
+func executeSingleNonCellAction(nonCellAction *NonCellAction, asynchronous bool) {
+	//route it to function depending on its type
+	switch nonCellAction.actionType {
+	case noncellaction_spontaneouslyPlaceCell:
+		spontaneouslyGenerateCell()
+	case noncellaction_shineOnAllCells:
+		shineOnAllCells()
+	case noncellaction_cellMaintenance:
+		//TODO
+		maintainAllCells()
+	}
+
+	if asynchronous {
+		nonCellActionExecuterWG.Done()
 	}
 }
 
@@ -487,6 +631,7 @@ func reproduce(cell *Cell) {
 
 func maintainAllCells() {
 	Log(LOGTYPE_MAINLOOPSINGLE, "Starting maintain\n")
+	//TODO: Could be parallelized in future
 	for _, cell := range WS.Cells {
 		cell.Maintain()
 	}
@@ -643,15 +788,22 @@ func shineOnAllCells() {
 		var isDayTime = WSNum%100 <= 50
 		var wg = &sync.WaitGroup{}
 		for yi := 0; yi < GRID_HEIGHT; yi++ {
-			wg.Add(1)
-			go shineThisRow(yi, isDayTime, wg)
+
+			if PARALLELIZE_SHINE_BY_ROW {
+				wg.Add(1)
+				go shineThisRow(yi, isDayTime, wg)
+			} else {
+				shineThisRow(yi, isDayTime, wg)
+			}
 
 			//Log(LOGTYPE_HIGHFREQUENCY, "Shiner touching on %d, %d \n", xi, yi)
 			//unlockYXRangeInclusive(yi-1, yi+1, xi-1, xi+1, "shiner")
 			//TODO: May have placed lock/unlocks here incorrectly
 		}
 		Log(LOGTYPE_MAINLOOPSINGLE, "Ending shine\n")
-		wg.Wait()
+		if PARALLELIZE_SHINE_BY_ROW {
+			wg.Wait()
+		}
 	}
 
 }
@@ -672,7 +824,9 @@ func shineThisRow(yi int, isDayTime bool, wg *sync.WaitGroup) {
 			//No sun at night
 		}
 	}
-	wg.Done()
+	if PARALLELIZE_SHINE_BY_ROW {
+		wg.Done()
+	}
 }
 
 const SURROUNDINGS_SIZE = 9

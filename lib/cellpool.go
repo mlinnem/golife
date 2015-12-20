@@ -14,18 +14,6 @@ func NewPool(max int) *Pool {
 	}
 }
 
-//TODO: ContinueOn and Copy would preferably be in cell, but can't be for reasons of depending on co
-func (oldCell *Cell) ContinueOn() *Cell {
-	//	var continuedCell = //Copy(oldCell)
-	//TODO: Re-enable when I figure out how to access WSNum
-	//Log(LOGTYPE_CELLEFFECT, "cell %d now has a future self established during WS %d\n", oldCell.ID, WSNum)
-	//if TracedCell != nil && oldCell.ID == TracedCell.ID {
-	//	TracedCell = continuedCell
-	//}
-	//TODO: This whole thing should be removed eventually, but it's not yet
-	return oldCell
-}
-
 type Pool struct {
 	pool chan *Cell
 }
