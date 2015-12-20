@@ -29,7 +29,7 @@ const (
 	LOGTYPE_CELLEFFECT             = iota
 )
 
-const PRINTGRID_EVERY_N_TURNS = 500
+const PRINTGRID_EVERY_N_TURNS = 300
 
 const DEFAULT_PRINTGRID_DEPTH = 0
 
@@ -37,7 +37,7 @@ const SPECIES_DIVERGENCE_THRESHOLD = 2.5
 
 const BIGGRID_INCREMENT = 3
 
-const NUM_TOP_SPECIES_TO_PRINT = 6
+const NUM_TOP_SPECIES_TO_PRINT = 5
 
 //TODO: Better place for this?
 var SpeciesCounter = 0
@@ -104,12 +104,14 @@ func printCell(cell *Cell) {
 			Log(LOGTYPE_PRINTGRID_GRID, "!")
 			Log(LOGTYPE_PRINTGRID_BIGGRID, "!")
 		} else if cell.Canopy == true && cell.Height >= 1 {
+			fmt.Println("BLOLOLOLOLO")
 			Log(LOGTYPE_PRINTGRID_GRID, colorStart+"X"+colorEnd)
 			Log(LOGTYPE_PRINTGRID_BIGGRID, colorStart+"X"+colorEnd)
 		} else if cell.Canopy == true {
 			Log(LOGTYPE_PRINTGRID_GRID, colorStart+"x"+colorEnd)
 			Log(LOGTYPE_PRINTGRID_BIGGRID, colorStart+"x"+colorEnd)
 		} else if cell.Height >= 1 {
+			fmt.Println("GLOOOOPOLOLOLOLO")
 			Log(LOGTYPE_PRINTGRID_GRID, colorStart+"O"+colorEnd)
 			Log(LOGTYPE_PRINTGRID_BIGGRID, colorStart+"O"+colorEnd)
 		} else {

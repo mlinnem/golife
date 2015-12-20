@@ -14,7 +14,7 @@ import (
 
 const RANDOM_SEED = false
 
-const MAX_WSS = 19000
+const MAX_MOMENTS = 999000
 
 //---PERFORMANCE_VARIABLES---
 //--GENERAL---
@@ -231,7 +231,7 @@ func main() {
 
 	initializeState()
 
-	for WSNum = 0; WSNum < MAX_WSS; WSNum++ {
+	for WSNum = 0; WSNum < MAX_MOMENTS; WSNum++ {
 		WS.WSNum = WSNum
 
 		if WSNum%PRINTGRID_EVERY_N_TURNS == 0 {
