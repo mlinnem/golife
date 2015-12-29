@@ -5,13 +5,14 @@ var WS *WorldState
 //---WORLD_CONDITIONS---
 const MAX_CELL_COUNT = 90000
 
-const SHINE_ENERGY_AMOUNT = 1.0
+const PERCENT_DAYLIGHT = 100
+const SHINE_ENERGY_AMOUNT = 1.5
 
-const INITIAL_CELL_COUNT = 2000
+const INITIAL_CELL_COUNT = 500
 
-const GRID_DEPTH = 2
-const GRID_WIDTH = 140
-const GRID_HEIGHT = 25
+const GRID_DEPTH = 3
+const GRID_WIDTH = 200
+const GRID_HEIGHT = 28
 
 const MAX_TRIES_TO_FIND_EMPTY_GRID_COORD = 100
 
@@ -23,21 +24,82 @@ type WorldState struct {
 }
 
 //TODO: Will need to be revised as move gets more sophisticated
+//Not the same as can BE here
 func (ws *WorldState) CanMoveHere(cell *Cell, targetX int, targetY int, targetZ int) bool {
-	var coverAreaIsOpen = ws.IsCovered(targetX, targetY, targetZ)
-	if !coverAreaIsOpen {
+	if ws.IsOutOfBounds(targetX, targetY, targetZ) {
 		return false
 	}
+	//var isCovered = ws.IsCovered(targetX, targetY, targetZ)
+	//	if isCovered {
+	//	return false
+	//}
 
 	//Check solid areas
-	//Note: this wont run at all if height is 0
-	for i := 0; i < cell.Height; i++ {
-		if ws.IsSolid(targetX, targetY, targetZ) {
+	for i := 0; i < cell.Height+1; i++ {
+		var solidCell, solidCellHere = ws.GetSolidCellAt(targetX, targetY, targetZ+i)
+		if solidCellHere {
+			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: MOVE LOCATION STATUS %d, %d, %d is occupied by solid cell %d with energy %6.1f\n", cell.ID, targetX, targetY, targetZ+i, solidCell.ID, solidCell.Energy)
 			return false
+		} else {
+			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: MOVE LOCATION STATUS... Checked %d, %d, %d for solid, but nothing found\n", cell.ID, targetX, targetY, targetZ+i)
+
 		}
 	}
 
+	var coveringCell, coveringCellHere = ws.GetCoveringCellAt(targetX, targetY, cell.Z+cell.Height)
+	if coveringCellHere {
+		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: MOVE LOCATION STATUS %d, %d, %d is occupied by covering cell %d with energy %6.1f\n", cell.ID, targetX, targetY, cell.Z+cell.Height, coveringCell.ID, coveringCell.Energy)
+		return false
+	}
+
 	return true
+}
+
+//TODO: Should call both covered and solid instead of doing it itself
+func (worldState *WorldState) GetAnyCellAt(x, y, z int) (*Cell, bool) {
+	if worldState.IsOutOfBounds(x, y, z) {
+		return nil, false
+	}
+
+	var solidAt = worldState.SpatialIndexSolid[z][y][x]
+	var coveredAt = worldState.SpatialIndexSurfaceCover[z][y][x]
+
+	//TODO: Potential for weird bug with conflict on surfaceCover and solid here
+	if solidAt != nil {
+		return solidAt, true
+	} else if coveredAt != nil {
+		return coveredAt, true
+	} else {
+		return nil, false
+	}
+}
+
+func (worldState *WorldState) GetCoveringCellAt(x, y, z int) (*Cell, bool) {
+	if worldState.IsOutOfBounds(x, y, z) {
+		return nil, false
+	}
+
+	var coveredAt = worldState.SpatialIndexSurfaceCover[z][y][x]
+
+	if coveredAt != nil {
+		return coveredAt, true
+	} else {
+		return nil, false
+	}
+}
+
+func (worldState *WorldState) GetSolidCellAt(x, y, z int) (*Cell, bool) {
+	if worldState.IsOutOfBounds(x, y, z) {
+		return nil, false
+	}
+
+	var solidAt = worldState.SpatialIndexSolid[z][y][x]
+
+	if solidAt != nil {
+		return solidAt, true
+	} else {
+		return nil, false
+	}
 }
 
 func (worldState *WorldState) AddCellToSpatialIndex(cell *Cell) {
@@ -48,10 +110,10 @@ func (worldState *WorldState) AddCellToSpatialIndex(cell *Cell) {
 	if cell.Height >= 1 {
 		for i := 0; i < cell.Height; i++ {
 			WS.SpatialIndexSolid[cell.Z+i][cell.Y][cell.X] = cell
-			//	Log(LOGTYPE_HIGHFREQUENCY, "Adding cell %d to %d,%d,%d in solid index\n", cell.ID, cell.X, cell.Y, cell.Z)
+			Log(LOGTYPE_HIGHFREQUENCY, "Adding cell %d to %d,%d,%d in solid index\n", cell.ID, cell.X, cell.Y, cell.Z+i)
 		}
 	}
-	//	Log(LOGTYPE_HIGHFREQUENCY, "Adding cell %d to %d,%d,%d in surface cover\n", cell.ID, cell.X, cell.Y, cell.Z+cell.Height)
+	Log(LOGTYPE_HIGHFREQUENCY, "Adding cell %d to %d,%d,%d in surface cover\n", cell.ID, cell.X, cell.Y, cell.Z+cell.Height)
 	WS.SpatialIndexSurfaceCover[cell.Z+cell.Height][cell.Y][cell.X] = cell
 }
 

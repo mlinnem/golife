@@ -12,20 +12,26 @@ import (
 	. "github.com/mlinnem/golife/main/lib"
 )
 
-const RANDOM_SEED = false
+const RANDOM_SEED = true
 
-const MAX_MOMENTS = 999000
+const MAX_MOMENTS = 50000000
+
+var HIGH_MUTATION_CHANCE = 10
+var NO_MUTATION_CHANCE = 50
+
+var CHANCE_OF_SANE_PLANT_VALUE = 20
+var CHANCE_OF_RIGGED_ANIMAL = 5
 
 //---PERFORMANCE_VARIABLES---
 //--GENERAL---
 
 //NOTE: If this is on, CellActionDecider can't be parallel
-const SERIAL_ACTIONTOEXECUTION_BRIDGE = false
+const SERIAL_ACTIONTOEXECUTION_BRIDGE = true
 const DEFAULT_BRIDGE_ACTIONCAPACITY = MAX_CELL_COUNT
 
-const PERSISTENT_CELLACTIONDECIDER = true
+const PERSISTENT_CELLACTIONDECIDER = false
 const PARALLELIZE_DECIDER = false
-const CELLACTIONDECIDER_ROUTINECOUNT = 5
+const CELLACTIONDECIDER_ROUTINECOUNT = 1
 const CELLS_PER_CELLDECIDERBUNDLE = 1000
 
 const PERSISTENT_CELLACTIONEXECUTER = false
@@ -38,6 +44,7 @@ const NONCELLACTIONEXECUTER_ROUTINECOUNT = 1
 
 //--SPECIFIC--
 const PARALLELIZE_SHINE_BY_ROW = true
+const SHINE_FREQUENCY = 1
 
 var cellActionExecuterWG sync.WaitGroup
 
@@ -191,12 +198,22 @@ func updateTracedCell() {
 		TracedCell = nil
 	}
 	if TracedCell == nil && len(WS.Cells) > 0 {
+		for multiplier := 1; multiplier < TRACEDCELL_AGERANGE_EXPANSIONS; multiplier++ {
+			for _, cell := range WS.Cells {
+				if cell.Age < TRACEDCELL_AGECAP*multiplier {
+					TracedCell = cell
+					return
+				}
+			}
+		}
+		Log(LOGTYPE_CELLEFFECT, "XXXXXXXX - Unable to find cell to trace with age < %d. Picking first cell from list\n", TRACEDCELL_AGECAP*TRACEDCELL_AGERANGE_EXPANSIONS)
 		TracedCell = WS.Cells[0]
 	}
 }
 
 func generateSystemNonCellActions() {
 	//generate any nonCellActions that need to be generated
+	//TODO: Rigging to try to introduce some animals later on
 	if WSNum == 0 {
 		Log(LOGTYPE_MAINLOOPSINGLE, "Populating initial cells\n")
 		generateInitialNonCellActions(&nonCellActionExecuterWG)
@@ -293,14 +310,16 @@ type CellAction struct {
 }
 
 const (
-	cellaction_growcanopy       = iota
-	cellaction_growheight       = iota
-	cellaction_growlegs         = iota
-	cellaction_growchloroplasts = iota
-	cellaction_wait             = iota
-	cellaction_reproduce        = iota
-	cellaction_moverandom       = iota
-	specialcellaction_done      = iota
+	cellaction_growcanopy          = iota
+	cellaction_growheight          = iota
+	cellaction_growlegs            = iota
+	cellaction_growdigestivesystem = iota
+	cellaction_growchloroplasts    = iota
+	cellaction_wait                = iota
+	cellaction_reproduce           = iota
+	cellaction_moverandom          = iota
+	cellaction_eat                 = iota
+	specialcellaction_done         = iota
 )
 
 func getCellActionName(cellActionType int) string {
@@ -313,12 +332,16 @@ func getCellActionName(cellActionType int) string {
 		return "Grow Height"
 	case cellaction_wait:
 		return "Wait"
+	case cellaction_eat:
+		return "Eat"
 	case cellaction_growlegs:
 		return "Grow Legs"
 	case cellaction_moverandom:
 		return "Move Random"
 	case cellaction_growchloroplasts:
 		return "Grow Chloroplasts"
+	case cellaction_growdigestivesystem:
+		return "Grow Digestive System"
 	default:
 		return "NO_KNOWN_ACTION_NAME"
 	}
@@ -362,6 +385,10 @@ func decideSingleCell(cell *Cell) *CellAction {
 	var cellAction *CellAction
 	if cell.IsReadyToGrowHeight() {
 		cellAction = &CellAction{cell, cellaction_growheight}
+	} else if cell.WantsToAndCanEat() {
+		cellAction = &CellAction{cell, cellaction_eat}
+	} else if cell.IsReadyToGrowDigestiveSystem() {
+		cellAction = &CellAction{cell, cellaction_growdigestivesystem}
 	} else if cell.IsReadyToGrowCanopy() {
 		cellAction = &CellAction{cell, cellaction_growcanopy}
 	} else if cell.IsReadyToGrowLegs() {
@@ -425,6 +452,8 @@ func executeSingleCellAction(cellAction *CellAction, asynchronous bool) {
 	switch cellAction.actionType {
 	case cellaction_reproduce:
 		reproduce(cellAction.cell)
+	case cellaction_growdigestivesystem:
+		cell.GrowDigestiveSystem()
 	case cellaction_growcanopy:
 		cell.GrowCanopy()
 	case cellaction_growheight:
@@ -433,6 +462,8 @@ func executeSingleCellAction(cellAction *CellAction, asynchronous bool) {
 		cell.GrowChloroplasts()
 	case cellaction_wait:
 		cell.Wait()
+	case cellaction_eat:
+		cell.Eat()
 	case cellaction_growlegs:
 		cell.GrowLegs()
 	case cellaction_moverandom:
@@ -496,9 +527,6 @@ func executeSingleNonCellAction(nonCellAction *NonCellAction, asynchronous bool)
 	}
 }
 
-var HIGH_MUTATION_CHANCE = 3
-var NO_MUTATION_CHANCE = 50
-
 func mutateNormMax(magnitudeNorm float64, magnitudeMax float64) float64 {
 	var rand0To99 = rand.Intn(100)
 
@@ -528,6 +556,7 @@ func reproduce(cell *Cell) {
 	}
 	//try all spots surrounding the cell
 	var z = 0
+	//TODO: Need to figure out how to handle bunnies reproducing on top of plants. Should be possible.
 	for _, direction := range GetSurroundingDirectionsInRandomOrder() {
 		var xTry = cell.X + direction.X
 		var yTry = cell.Y + direction.Y
@@ -541,7 +570,7 @@ func reproduce(cell *Cell) {
 			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d born with %f energy\n", babyCell.ID, babyCell.Energy)
 			babyCell.X = xTry
 			babyCell.Y = yTry
-			babyCell.Z = cell.Z //TODO: Might want to revisit this later?
+			babyCell.Z = 0
 			babyCell.SpeciesID = cell.SpeciesID
 			babyCell.SpeciesColor = cell.SpeciesColor
 			babyCell.TimeLeftToWait = 0
@@ -550,48 +579,25 @@ func reproduce(cell *Cell) {
 			babyCell.Height = 0
 			babyCell.Legs = false
 			babyCell.Chloroplasts = false
-
-			//var rand0To99 = rand.Intn(100)
-			//if rand0To99 < 10 {
-			//	babyCell.ClockRate = int(math.Max(1.0, float64(cell.ClockRate+rand.Intn(17)-8)))
-			//} else if rand0To99 < 80 {
-			//	babyCell.ClockRate = int(math.Max(1.0, float64(cell.ClockRate+rand.Intn(3)-1)))
-			//} else {
-			//	babyCell.ClockRate = cell.ClockRate
-			//}
-			//TODO: Better way to do this
+			babyCell.DigestiveSystem = false
 
 			babyCell.ClockRate = int(mutateMinMaxInThisRange(float64(cell.ClockRate), 8.0, 50.0, 1.0, 1000.0))
 			babyCell.EnergySpentOnReproducing = mutateMinMaxInThisRange(cell.EnergySpentOnReproducing, 8.0, 1000.0, REPRODUCE_COST, 2000.0)
 			babyCell.EnergyReproduceThreshold = mutateMinMaxInThisRange(cell.EnergyReproduceThreshold, 8.0, 1000.0, babyCell.EnergySpentOnReproducing, 2000.0)
 			babyCell.GrowChloroplastsAt = mutateMinMaxInThisRange(cell.GrowChloroplastsAt, 8.0, 1000.0, GROWCHLOROPLASTS_COST, 1000.0)
 			babyCell.GrowCanopyAt = mutateMinMaxInThisRange(cell.GrowCanopyAt, 8.0, 1000.0, GROWCANOPY_COST, 2000.0)
+			babyCell.GrowDigestiveSystemAt = mutateMinMaxInThisRange(cell.GrowDigestiveSystemAt, 8.0, 1000.0, GROWDIGESTIVESYSTEM_COST, 2000.0)
 			babyCell.GrowHeightAt = mutateMinMaxInThisRange(cell.GrowHeightAt, 8.0, 1000.0, GROWHEIGHT_COST, 2000.0) //math.Max(GROWHEIGHT_COST, cell.GrowHeightAt+float64(rand.Intn(9)-5))
 			babyCell.GrowLegsAt = mutateMinMaxInThisRange(cell.GrowLegsAt, 8.0, 1000.0, GROWLEGS_COST, 2000.0)
 			babyCell.MoveChance = mutateMinMaxInThisRange(cell.MoveChance, 6.0, 100.0, 0, 100.0)
 			babyCell.PercentChanceWait = int(mutateMinMaxInThisRange(float64(cell.PercentChanceWait), 6.0, 100.0, 0, 100.0))
 
-			//var rand0To99_2 = rand.Intn(100)
-			//if rand0To99_2 == 0 {
-			//	//legless gets legs
-			//	babyCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST
-			//	babyCell.MoveChance = float64(rand.Intn(40))
-			//} else if rand0To99_2 == 1 {
-			//legged goes legless
-			//	babyCell.GrowLegsAt = float64(rand.Intn(200)) + GROWLEGS_COST + 1000
-			//	babyCell.MoveChance = 0.0
-			//} else {
-			//mutate like normal
-			//	babyCell.GrowLegsAt = math.Max(GROWLEGS_COST, float64(cell.GrowLegsAt+float64(rand.Intn(7)-3)))
-			//	babyCell.MoveChance = math.Max(0.0, float64(cell.MoveChance+float64(rand.Intn(7)-3)))
-			//}
-
-			//babyCell.PercentChanceWait = int(math.Max(0.0, float64(cell.PercentChanceWait+rand.Intn(7)-3)))
-			babyCell.X_originalGrowChloroplastsAt = cell.X_originalGrowChloroplastsAt
 			babyCell.X_originalClockRate = cell.X_originalClockRate
 			babyCell.X_originalEnergyReproduceThreshold = cell.X_originalEnergyReproduceThreshold
 			babyCell.X_originalEnergySpentOnReproducing = cell.X_originalEnergySpentOnReproducing
 			babyCell.X_originalGrowCanopyAt = cell.X_originalGrowCanopyAt
+			babyCell.X_originalGrowChloroplastsAt = cell.X_originalGrowChloroplastsAt
+			babyCell.X_originalGrowDigestiveSystemAt = cell.X_originalGrowDigestiveSystemAt
 			babyCell.X_originalGrowHeightAt = cell.X_originalGrowHeightAt
 			babyCell.X_originalGrowLegsAt = cell.X_originalGrowLegsAt
 			babyCell.X_originalMoveChance = cell.X_originalMoveChance
@@ -609,6 +615,7 @@ func reproduce(cell *Cell) {
 				babyCell.X_originalEnergyReproduceThreshold = babyCell.EnergyReproduceThreshold
 				babyCell.X_originalGrowChloroplastsAt = babyCell.GrowChloroplastsAt
 				babyCell.X_originalGrowCanopyAt = babyCell.GrowCanopyAt
+				babyCell.X_originalGrowDigestiveSystemAt = babyCell.GrowDigestiveSystemAt
 				babyCell.X_originalGrowHeightAt = babyCell.GrowHeightAt
 				babyCell.X_originalGrowLegsAt = babyCell.GrowLegsAt
 				babyCell.X_originalMoveChance = babyCell.MoveChance
@@ -618,10 +625,12 @@ func reproduce(cell *Cell) {
 				Log(LOGTYPE_SPECIALEVENT, "orig reprod threshold: %f, new reprod threshold: %f\n", cell.X_originalEnergyReproduceThreshold, babyCell.X_originalEnergyReproduceThreshold)
 				Log(LOGTYPE_SPECIALEVENT, "orig reprod energy spend: %f, new reprod energy spend: %f\n", cell.X_originalEnergySpentOnReproducing, babyCell.X_originalEnergySpentOnReproducing)
 				Log(LOGTYPE_SPECIALEVENT, "orig grow canopy threshold: %f, new grow canopy threshold: %f\n", cell.X_originalGrowCanopyAt, babyCell.X_originalGrowCanopyAt)
-
 			}
 			WS.Cells = append(WS.Cells, babyCell)
 			WS.AddCellToSpatialIndex(babyCell)
+			if TracedCell == cell {
+				TracedCell = babyCell
+			}
 			cell.DecreaseEnergy(cell.EnergySpentOnReproducing)
 			return
 		}
@@ -637,26 +646,6 @@ func maintainAllCells() {
 	}
 	Log(LOGTYPE_MAINLOOPSINGLE, "Ending maintain\n")
 }
-
-//func lockAllYXs(who string) {
-//	lockYXRangeInclusive(0, GRID_HEIGHT-1, 0, GRID_WIDTH-1, who)
-//}
-
-//func lockYXRangeInclusive(startY int, endY int, startX int, endX int, who string) {
-//	Log(LOGTYPE_DEBUGCONCURRENCY, "%s Trying to grab bulk lock\n", who)
-//	bulkGrabLock.Lock()
-//	Log(LOGTYPE_DEBUGCONCURRENCY, "%s Grabbed successfully\n", who)
-//	for y := startY; y < endY+1; y++ {
-//		for x := startX; x < endX+1; x++ {
-//			if !WS.IsOutOfBounds(x, y, z) {
-//				Log(LOGTYPE_DEBUGCONCURRENCY, "%s is going to lock %d, %d\n", who, x, y)
-//				//WSYXLocks[y][x].Lock()
-//			}
-//		}
-//	}
-//	Log(LOGTYPE_DEBUGCONCURRENCY, "%s trying to release bulk lock\n", who)
-//	bulkGrabLock.Unlock()
-//}
 
 var SpeciesIDCounter = 0
 var IDCounter = 0
@@ -684,27 +673,67 @@ func spontaneouslyGenerateCell() {
 			IDCounter++
 			SpeciesIDCounter++
 			newCell.SpeciesColor = getNextColor()
-			newCell.Energy = float64(rand.Intn(100))
+			newCell.Energy = float64(rand.Intn(2000))
 			newCell.TimeLeftToWait = 0
 			newCell.Chloroplasts = false
 
-			newCell.ClockRate = rand.Intn(400) + 1
+			if rand.Intn(100) < CHANCE_OF_SANE_PLANT_VALUE {
+				newCell.ClockRate = rand.Intn(400) + 1
+			} else {
+				newCell.ClockRate = rand.Intn(45) + 5
+			}
+
 			newCell.PercentChanceWait = rand.Intn(90)
 
-			newCell.EnergySpentOnReproducing = REPRODUCE_COST + float64(rand.Intn(1500))
-			newCell.EnergyReproduceThreshold = newCell.EnergySpentOnReproducing + float64(rand.Intn(1500))
+			if rand.Intn(100) < CHANCE_OF_SANE_PLANT_VALUE {
+				newCell.EnergySpentOnReproducing = REPRODUCE_COST + float64(rand.Intn(1500))
+			} else {
+				newCell.EnergySpentOnReproducing = REPRODUCE_COST + float64(rand.Intn(100))
+			}
+
+			if rand.Intn(100) < CHANCE_OF_SANE_PLANT_VALUE {
+				newCell.EnergyReproduceThreshold = newCell.EnergySpentOnReproducing + float64(rand.Intn(1500))
+			} else {
+				newCell.EnergyReproduceThreshold = newCell.EnergySpentOnReproducing + float64(rand.Intn(100))
+			}
+
 			newCell.Canopy = false
-			newCell.GrowChloroplastsAt = float64(rand.Intn(20)) + GROWCHLOROPLASTS_COST //float64(rand.Intn(1500)) + GROWCHLOROPLASTS_COST
+			newCell.GrowDigestiveSystemAt = float64(rand.Intn(2000)) + GROWDIGESTIVESYSTEM_COST
+
+			if rand.Intn(100) < CHANCE_OF_SANE_PLANT_VALUE {
+				newCell.GrowChloroplastsAt = float64(rand.Intn(1500)) + GROWCHLOROPLASTS_COST
+			} else {
+				newCell.GrowChloroplastsAt = float64(rand.Intn(30)) + GROWCHLOROPLASTS_COST
+			}
+
 			newCell.GrowCanopyAt = float64(rand.Intn(1500)) + GROWCANOPY_COST
 			newCell.GrowHeightAt = float64(rand.Intn(1500)) + GROWHEIGHT_COST
-			if rand.Intn(100) < 50 {
+			if rand.Intn(100) < CHANCE_OF_SANE_PLANT_VALUE {
 				newCell.GrowLegsAt = float64(rand.Intn(1500)) + GROWLEGS_COST
 				newCell.MoveChance = float64(rand.Intn(90))
 			} else {
 				newCell.GrowLegsAt = float64(rand.Intn(1500)) + GROWLEGS_COST
-				newCell.MoveChance = 0.0
+				newCell.MoveChance = float64(rand.Intn(90))
 			}
 
+			//TODO: Straight up making an animal here, designer animal, only for testing purposes
+
+			if rand.Intn(100) < CHANCE_OF_RIGGED_ANIMAL {
+				newCell.Energy = 1000.0
+				newCell.GrowDigestiveSystemAt = GROWDIGESTIVESYSTEM_COST + 50
+				newCell.GrowChloroplastsAt = 5000.0
+				newCell.GrowHeightAt = GROWHEIGHT_COST + 50
+				newCell.MoveChance = 10
+				newCell.GrowLegsAt = GROWLEGS_COST + 50
+				newCell.PercentChanceWait = 5
+				newCell.EnergyReproduceThreshold = 900.0
+				newCell.EnergySpentOnReproducing = 800.0
+				newCell.ClockRate = 2
+				newCell.GrowCanopyAt = 5000.0
+				TracedCell = newCell
+			}
+
+			newCell.X_originalGrowDigestiveSystemAt = newCell.GrowDigestiveSystemAt
 			newCell.X_originalGrowChloroplastsAt = newCell.GrowChloroplastsAt
 			newCell.X_originalGrowHeightAt = newCell.GrowHeightAt
 			newCell.X_originalMoveChance = newCell.MoveChance
@@ -777,15 +806,13 @@ func Round(val float64, roundOn float64, places int) (newVal float64) {
 	return
 }
 
-const SHINE_FREQUENCY = 5
-
 func shineOnAllCells() {
 	if WSNum%SHINE_FREQUENCY == 0 {
 		Log(LOGTYPE_MAINLOOPSINGLE, "Starting shine\n")
 		//TODO: This could stand to be refactored a bit
 		//TODO: Changed for WS to current WS, but might be wrong...
 
-		var isDayTime = WSNum%100 <= 50
+		var isDayTime = WSNum%100 <= PERCENT_DAYLIGHT
 		var wg = &sync.WaitGroup{}
 		for yi := 0; yi < GRID_HEIGHT; yi++ {
 
@@ -808,17 +835,20 @@ func shineOnAllCells() {
 
 }
 
+const SHADE_GRADIENT_OFFSET = 2
+
 func shineThisRow(yi int, isDayTime bool, wg *sync.WaitGroup) {
 	for xi := 0; xi < GRID_WIDTH; xi++ {
+		//TODO: Disabled day night cycle. Turn it back on eventually
 		if isDayTime { //int(YProximityToMiddleAsPercent(yi)*100)
 
 			var shineAmountForThisSquare float64
 			if xi%2 == 0 && yi%2 == 0 {
-				shineAmountForThisSquare = SHINE_ENERGY_AMOUNT * SHINE_FREQUENCY * 2 * 2 //* float64(float64(yi)/float64(GRID_HEIGHT))
-
+				shineAmountForThisSquare = SHINE_ENERGY_AMOUNT * SHINE_FREQUENCY / (float64(PERCENT_DAYLIGHT) / 100.0) * SHADE_GRADIENT_OFFSET //* float64(float64(yi)/float64(GRID_HEIGHT))
 			} else {
-				shineAmountForThisSquare = SHINE_ENERGY_AMOUNT * SHINE_FREQUENCY * (float64(xi) / GRID_WIDTH) * 2 * 2 //* float64(float64(yi)/float64(GRID_HEIGHT))
+				shineAmountForThisSquare = SHINE_ENERGY_AMOUNT * SHINE_FREQUENCY * (float64(xi) / GRID_WIDTH) / (float64(PERCENT_DAYLIGHT) / 100.0) * SHADE_GRADIENT_OFFSET //* float64(float64(yi)/float64(GRID_HEIGHT))
 			}
+			//fmt.Printf("Shining this much at %d, %d: %6.1f\n", xi, yi, shineAmountForThisSquare)
 			newerShineMethod(xi, yi, shineAmountForThisSquare)
 		} else {
 			//No sun at night
@@ -831,66 +861,33 @@ func shineThisRow(yi int, isDayTime bool, wg *sync.WaitGroup) {
 
 const SURROUNDINGS_SIZE = 9
 
-func newShineMethod(x int, y int, shineAmountForThisSquare float64) {
-
-	//TODO: Just making the array is faster than using pool. Surprising
-	var surroundingCellsWithCanopiesAndMe = &[SURROUNDINGS_SIZE]*Cell{} //surroundingsPool.Borrow()
-	var numSurrounders = 0
-	//TODO: Need to rejigger to take into account 3rd dimension better
-	var z = 0
-
-	var cell = WS.SpatialIndexSurfaceCover[z][y][x]
-
-	//If we have a cell that is tall...
-	if cell != nil && cell.Chloroplasts == true && cell.Height == 1 {
-		//give all energy to that cell
-		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Shine @ height 1\n", cell.ID)
-
-		cell.IncreaseEnergy(shineAmountForThisSquare)
-	} else {
-		//otherwise, distribute energy among the cell (if it exists), and surrounding cells that have canopies
-		if cell != nil && cell.Chloroplasts == true {
-			surroundingCellsWithCanopiesAndMe[0] = cell
-			numSurrounders++
-		}
-		for relativeY := -1; relativeY < 2; relativeY++ {
-			for relativeX := -1; relativeX < 2; relativeX++ {
-				var xTry = x + relativeX
-				var yTry = y + relativeY
-				if relativeX == 0 && relativeY == 0 {
-					continue
-				}
-				if !WS.IsOutOfBounds(xTry, yTry, z) && WS.IsSolidOrCovered(xTry, yTry, z) && WS.SpatialIndexSurfaceCover[z][yTry][xTry].Canopy == true {
-					var surroundingCell = WS.SpatialIndexSurfaceCover[z][yTry][xTry]
-					surroundingCellsWithCanopiesAndMe[numSurrounders] = surroundingCell
-					numSurrounders++
-				}
-			}
-		}
-		var energyToEachCell = shineAmountForThisSquare / float64(numSurrounders)
-		for i := 0; i < numSurrounders; i++ {
-			LogIfTraced(surroundingCellsWithCanopiesAndMe[i], LOGTYPE_CELLEFFECT, "cell %d: Shine @ height 0, 1/%d\n", surroundingCellsWithCanopiesAndMe[i].ID, numSurrounders)
-			surroundingCellsWithCanopiesAndMe[i].IncreaseEnergy(energyToEachCell)
-		}
-	}
-}
-
 func newerShineMethod(x int, y int, shineAmountForThisSquare float64) {
 	//	fmt.Printf("Shinin \n")
 
 	var shineAmountLeft = shineAmountForThisSquare
+	var hitSolid = false
 	for z := GRID_DEPTH - 1; z >= 0; z-- {
 		//	fmt.Printf("Blam")
-		var remaining = giveEnergyToNonSolidCellsAtThisLevel(x, y, z, shineAmountLeft/2)
+		if WS.SpatialIndexSolid[z][y][x] != nil {
+			hitSolid = false
+			//TODO: Rigged
+		}
+
+		var remaining = giveEnergyToNonSolidCellsAtThisLevel(x, y, z, shineAmountLeft*CANOPY_COVER_FRACTION)
 		//TODO: This needs to handle roofs
 		shineAmountLeft = shineAmountLeft/2 + remaining
-		if z == 0 {
-			var cell = WS.SpatialIndexSurfaceCover[z][y][x]
-			if cell != nil && cell.Chloroplasts == true {
-				cell.IncreaseEnergy(shineAmountLeft)
-			}
-			//We're about to hit ground cover
-		} else {
+		var cellAtSurface = WS.SpatialIndexSurfaceCover[z][y][x]
+
+		if cellAtSurface != nil && !hitSolid && cellAtSurface.Chloroplasts == true {
+			//fmt.Println("Giving juice to cell")
+			LogIfTraced(cellAtSurface, LOGTYPE_CELLEFFECT, "cell %d: Surface shine @ height %d \n", cellAtSurface.ID, z)
+			//fmt.Printf("cell %d: Surface shine of %6.1f @ height %d \n", cellAtSurface.ID, shineAmountLeft, z)
+			//PrintCurrentGenesOfCell(cellAtSurface)
+
+			//var cell = cellAtSurface
+			//	Log(LOGTYPE_CELLEFFECT, "cell %d GROW STATUS: energy %6.1f, canopy %t, height %d, legs %t, chloroplasts %t, DigestiveSystem %t\n\n\n", cell.ID, cell.Energy, cell.Canopy, cell.Height, cell.Legs, cell.Chloroplasts, cell.DigestiveSystem)
+
+			cellAtSurface.IncreaseEnergy(shineAmountLeft)
 		}
 	}
 }
@@ -916,7 +913,7 @@ func giveEnergyToNonSolidCellsAtThisLevel(x int, y int, z int, shineAmountForThi
 	}
 	var energyToEachCell = shineAmountForThisSquare / float64(numSurrounders)
 	for i := 0; i < numSurrounders; i++ {
-		LogIfTraced(surroundingCellsWithCanopiesAndMe[i], LOGTYPE_CELLEFFECT, "cell %d: Shine @ height 0, 1/%d\n", surroundingCellsWithCanopiesAndMe[i].ID, numSurrounders)
+		LogIfTraced(surroundingCellsWithCanopiesAndMe[i], LOGTYPE_CELLEFFECT, "cell %d: Canopy shine @ height %d, 1/%d\n", surroundingCellsWithCanopiesAndMe[i].ID, z, numSurrounders)
 		surroundingCellsWithCanopiesAndMe[i].IncreaseEnergy(energyToEachCell)
 	}
 
