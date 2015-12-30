@@ -5,16 +5,16 @@ var WS *WorldState
 //---WORLD_CONDITIONS---
 const MAX_CELL_COUNT = 90000
 
-const PERCENT_DAYLIGHT = 100
-const SHINE_ENERGY_AMOUNT = 1.5
+const PERCENT_DAYLIGHT = 50 //will be offset by increase shine during day if lowered
+const SHINE_ENERGY_AMOUNT = 2.66
 
 const INITIAL_CELL_COUNT = 500
 
 const GRID_DEPTH = 3
-const GRID_WIDTH = 200
-const GRID_HEIGHT = 28
+const GRID_WIDTH = 275
+const GRID_HEIGHT = 55
 
-const MAX_TRIES_TO_FIND_EMPTY_GRID_COORD = 100
+const MAX_TRIES_TO_FIND_EMPTY_GRID_COORD = 50
 
 type WorldState struct {
 	WSNum                    int

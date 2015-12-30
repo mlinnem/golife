@@ -17,10 +17,10 @@ const RANDOM_SEED = true
 const MAX_MOMENTS = 50000000
 
 var HIGH_MUTATION_CHANCE = 10
-var NO_MUTATION_CHANCE = 50
+var NO_MUTATION_CHANCE = 80
 
-var CHANCE_OF_SANE_PLANT_VALUE = 20
-var CHANCE_OF_RIGGED_ANIMAL = 5
+var CHANCE_OF_SANE_PLANT_VALUE = 0
+var CHANCE_OF_RIGGED_ANIMAL = -1
 
 //---PERFORMANCE_VARIABLES---
 //--GENERAL---
@@ -310,16 +310,17 @@ type CellAction struct {
 }
 
 const (
-	cellaction_growcanopy          = iota
-	cellaction_growheight          = iota
-	cellaction_growlegs            = iota
-	cellaction_growdigestivesystem = iota
-	cellaction_growchloroplasts    = iota
-	cellaction_wait                = iota
-	cellaction_reproduce           = iota
-	cellaction_moverandom          = iota
-	cellaction_eat                 = iota
-	specialcellaction_done         = iota
+	cellaction_growcanopy                = iota
+	cellaction_growheight                = iota
+	cellaction_growlegs                  = iota
+	cellaction_growdigestivesystem       = iota
+	cellaction_growchloroplasts          = iota
+	cellaction_wait                      = iota
+	cellaction_reproduce                 = iota
+	cellaction_moverandom                = iota
+	cellaction_movetohighestedibleenergy = iota
+	cellaction_eat                       = iota
+	specialcellaction_done               = iota
 )
 
 func getCellActionName(cellActionType int) string {
@@ -336,6 +337,8 @@ func getCellActionName(cellActionType int) string {
 		return "Eat"
 	case cellaction_growlegs:
 		return "Grow Legs"
+	case cellaction_movetohighestedibleenergy:
+		return "Move to Highest Edible Energy"
 	case cellaction_moverandom:
 		return "Move Random"
 	case cellaction_growchloroplasts:
@@ -363,7 +366,7 @@ func decideForTheseCells(cellDeciderBundle []*Cell, asynchronous bool) {
 		} else {
 			var cellAction = decideSingleCell(cell)
 			if cellAction != nil {
-				LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: sending action '%s'\n", cell.ID, getCellActionName(cellAction.actionType))
+				//			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: sending action '%s'\n", cell.ID, getCellActionName(cellAction.actionType))
 				//TODO: Is this safe when executer is persistent?
 				if SERIAL_ACTIONTOEXECUTION_BRIDGE {
 					serialQueuedCellActions[serialQueuedCellActionsLength] = cellAction
@@ -372,7 +375,7 @@ func decideForTheseCells(cellDeciderBundle []*Cell, asynchronous bool) {
 					queuedCellActions <- cellAction
 				}
 			} else {
-				LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: NO ACTION\n", cell.ID)
+				//		LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: NO ACTION\n", cell.ID)
 			}
 		}
 	}
@@ -385,8 +388,6 @@ func decideSingleCell(cell *Cell) *CellAction {
 	var cellAction *CellAction
 	if cell.IsReadyToGrowHeight() {
 		cellAction = &CellAction{cell, cellaction_growheight}
-	} else if cell.WantsToAndCanEat() {
-		cellAction = &CellAction{cell, cellaction_eat}
 	} else if cell.IsReadyToGrowDigestiveSystem() {
 		cellAction = &CellAction{cell, cellaction_growdigestivesystem}
 	} else if cell.IsReadyToGrowCanopy() {
@@ -397,15 +398,18 @@ func decideSingleCell(cell *Cell) *CellAction {
 		cellAction = &CellAction{cell, cellaction_growchloroplasts}
 	} else if cell.IsTimeToReproduce() {
 		cellAction = &CellAction{cell, cellaction_reproduce}
+	} else if cell.WantsToAndCanEat() {
+		cellAction = &CellAction{cell, cellaction_eat}
 	} else if cell.WantsToAndCanMove() {
-		cellAction = &CellAction{cell, cellaction_moverandom}
+		//TODO: Rigged to move to highest energy, despite move random logic in "Wants To And Can Move"
+		cellAction = &CellAction{cell, cellaction_movetohighestedibleenergy}
 	} else if cell.ShouldWait() {
 		cellAction = &CellAction{cell, cellaction_wait}
 	} else {
 		//no action at all. Hopefully don't need to submit a null action
 	}
 
-	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: PAY THINKING\n", cell.ID)
+	//LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: PAY THINKING\n", cell.ID)
 	cell.DecreaseEnergy(THINKING_COST)
 	cell.IncreaseWaitTime(cell.ClockRate - 1)
 	return cellAction
@@ -468,6 +472,8 @@ func executeSingleCellAction(cellAction *CellAction, asynchronous bool) {
 		cell.GrowLegs()
 	case cellaction_moverandom:
 		cell.MoveRandom()
+	case cellaction_movetohighestedibleenergy:
+		cell.MoveToHighestEdibleEnergy()
 	}
 
 	if asynchronous {
@@ -561,13 +567,13 @@ func reproduce(cell *Cell) {
 		var xTry = cell.X + direction.X
 		var yTry = cell.Y + direction.Y
 		if !WS.IsSolidOrCovered(xTry, yTry, z) {
-			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Making baby from %d, %d -> %d, %d\n", cell.ID, cell.X, cell.Y, xTry, yTry)
+			//	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Making baby from %d, %d -> %d, %d\n", cell.ID, cell.X, cell.Y, xTry, yTry)
 			var babyCell = CellPool.Borrow()
 			babyCell.Energy = cell.EnergySpentOnReproducing - REPRODUCE_COST
 			//TODO: This should be a function, probably needs locking if parallelized
 			babyCell.ID = IDCounter
 			IDCounter++
-			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d born with %f energy\n", babyCell.ID, babyCell.Energy)
+			//	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d born with %f energy\n", babyCell.ID, babyCell.Energy)
 			babyCell.X = xTry
 			babyCell.Y = yTry
 			babyCell.Z = 0
@@ -581,14 +587,14 @@ func reproduce(cell *Cell) {
 			babyCell.Chloroplasts = false
 			babyCell.DigestiveSystem = false
 
-			babyCell.ClockRate = int(mutateMinMaxInThisRange(float64(cell.ClockRate), 8.0, 50.0, 1.0, 1000.0))
-			babyCell.EnergySpentOnReproducing = mutateMinMaxInThisRange(cell.EnergySpentOnReproducing, 8.0, 1000.0, REPRODUCE_COST, 2000.0)
-			babyCell.EnergyReproduceThreshold = mutateMinMaxInThisRange(cell.EnergyReproduceThreshold, 8.0, 1000.0, babyCell.EnergySpentOnReproducing, 2000.0)
-			babyCell.GrowChloroplastsAt = mutateMinMaxInThisRange(cell.GrowChloroplastsAt, 8.0, 1000.0, GROWCHLOROPLASTS_COST, 1000.0)
-			babyCell.GrowCanopyAt = mutateMinMaxInThisRange(cell.GrowCanopyAt, 8.0, 1000.0, GROWCANOPY_COST, 2000.0)
-			babyCell.GrowDigestiveSystemAt = mutateMinMaxInThisRange(cell.GrowDigestiveSystemAt, 8.0, 1000.0, GROWDIGESTIVESYSTEM_COST, 2000.0)
-			babyCell.GrowHeightAt = mutateMinMaxInThisRange(cell.GrowHeightAt, 8.0, 1000.0, GROWHEIGHT_COST, 2000.0) //math.Max(GROWHEIGHT_COST, cell.GrowHeightAt+float64(rand.Intn(9)-5))
-			babyCell.GrowLegsAt = mutateMinMaxInThisRange(cell.GrowLegsAt, 8.0, 1000.0, GROWLEGS_COST, 2000.0)
+			babyCell.ClockRate = int(mutateMinMaxInThisRange(float64(cell.ClockRate), 5.0, 50.0, 1.0, 1000.0))
+			babyCell.EnergySpentOnReproducing = mutateMinMaxInThisRange(cell.EnergySpentOnReproducing, 8.0, 1000.0, REPRODUCE_COST, 9000.0)
+			babyCell.EnergyReproduceThreshold = mutateMinMaxInThisRange(cell.EnergyReproduceThreshold, 8.0, 1000.0, babyCell.EnergySpentOnReproducing, 9000.0)
+			babyCell.GrowChloroplastsAt = mutateMinMaxInThisRange(cell.GrowChloroplastsAt, 8.0, 1000.0, GROWCHLOROPLASTS_COST, 9000.0)
+			babyCell.GrowCanopyAt = mutateMinMaxInThisRange(cell.GrowCanopyAt, 8.0, 1000.0, GROWCANOPY_COST, 9000.0)
+			babyCell.GrowDigestiveSystemAt = mutateMinMaxInThisRange(cell.GrowDigestiveSystemAt, 8.0, 1000.0, GROWDIGESTIVESYSTEM_COST, 9000.0)
+			babyCell.GrowHeightAt = mutateMinMaxInThisRange(cell.GrowHeightAt, 8.0, 1000.0, GROWHEIGHT_COST, 9000.0) //math.Max(GROWHEIGHT_COST, cell.GrowHeightAt+float64(rand.Intn(9)-5))
+			babyCell.GrowLegsAt = mutateMinMaxInThisRange(cell.GrowLegsAt, 8.0, 1000.0, GROWLEGS_COST, 9000.0)
 			babyCell.MoveChance = mutateMinMaxInThisRange(cell.MoveChance, 6.0, 100.0, 0, 100.0)
 			babyCell.PercentChanceWait = int(mutateMinMaxInThisRange(float64(cell.PercentChanceWait), 6.0, 100.0, 0, 100.0))
 
@@ -673,7 +679,7 @@ func spontaneouslyGenerateCell() {
 			IDCounter++
 			SpeciesIDCounter++
 			newCell.SpeciesColor = getNextColor()
-			newCell.Energy = float64(rand.Intn(2000))
+			newCell.Energy = float64(rand.Intn(4000))
 			newCell.TimeLeftToWait = 0
 			newCell.Chloroplasts = false
 
@@ -686,34 +692,34 @@ func spontaneouslyGenerateCell() {
 			newCell.PercentChanceWait = rand.Intn(90)
 
 			if rand.Intn(100) < CHANCE_OF_SANE_PLANT_VALUE {
-				newCell.EnergySpentOnReproducing = REPRODUCE_COST + float64(rand.Intn(1500))
+				newCell.EnergySpentOnReproducing = REPRODUCE_COST + float64(rand.Intn(4000))
 			} else {
 				newCell.EnergySpentOnReproducing = REPRODUCE_COST + float64(rand.Intn(100))
 			}
 
 			if rand.Intn(100) < CHANCE_OF_SANE_PLANT_VALUE {
-				newCell.EnergyReproduceThreshold = newCell.EnergySpentOnReproducing + float64(rand.Intn(1500))
+				newCell.EnergyReproduceThreshold = newCell.EnergySpentOnReproducing + float64(rand.Intn(3000))
 			} else {
 				newCell.EnergyReproduceThreshold = newCell.EnergySpentOnReproducing + float64(rand.Intn(100))
 			}
 
 			newCell.Canopy = false
-			newCell.GrowDigestiveSystemAt = float64(rand.Intn(2000)) + GROWDIGESTIVESYSTEM_COST
+			newCell.GrowDigestiveSystemAt = float64(rand.Intn(4000)) + GROWDIGESTIVESYSTEM_COST
 
 			if rand.Intn(100) < CHANCE_OF_SANE_PLANT_VALUE {
-				newCell.GrowChloroplastsAt = float64(rand.Intn(1500)) + GROWCHLOROPLASTS_COST
+				newCell.GrowChloroplastsAt = float64(rand.Intn(4000)) + GROWCHLOROPLASTS_COST
 			} else {
 				newCell.GrowChloroplastsAt = float64(rand.Intn(30)) + GROWCHLOROPLASTS_COST
 			}
 
-			newCell.GrowCanopyAt = float64(rand.Intn(1500)) + GROWCANOPY_COST
-			newCell.GrowHeightAt = float64(rand.Intn(1500)) + GROWHEIGHT_COST
+			newCell.GrowCanopyAt = float64(rand.Intn(4000)) + GROWCANOPY_COST
+			newCell.GrowHeightAt = float64(rand.Intn(4000)) + GROWHEIGHT_COST
 			if rand.Intn(100) < CHANCE_OF_SANE_PLANT_VALUE {
-				newCell.GrowLegsAt = float64(rand.Intn(1500)) + GROWLEGS_COST
-				newCell.MoveChance = float64(rand.Intn(90))
+				newCell.GrowLegsAt = float64(rand.Intn(4000)) + GROWLEGS_COST
+				newCell.MoveChance = float64(rand.Intn(95))
 			} else {
-				newCell.GrowLegsAt = float64(rand.Intn(1500)) + GROWLEGS_COST
-				newCell.MoveChance = float64(rand.Intn(90))
+				newCell.GrowLegsAt = float64(rand.Intn(4000)) + 4000 + GROWLEGS_COST
+				newCell.MoveChance = float64(rand.Intn(95))
 			}
 
 			//TODO: Straight up making an animal here, designer animal, only for testing purposes
@@ -723,12 +729,12 @@ func spontaneouslyGenerateCell() {
 				newCell.GrowDigestiveSystemAt = GROWDIGESTIVESYSTEM_COST + 50
 				newCell.GrowChloroplastsAt = 5000.0
 				newCell.GrowHeightAt = GROWHEIGHT_COST + 50
-				newCell.MoveChance = 10
+				newCell.MoveChance = 75
 				newCell.GrowLegsAt = GROWLEGS_COST + 50
-				newCell.PercentChanceWait = 5
+				newCell.PercentChanceWait = 90
 				newCell.EnergyReproduceThreshold = 900.0
 				newCell.EnergySpentOnReproducing = 800.0
-				newCell.ClockRate = 2
+				newCell.ClockRate = 1
 				newCell.GrowCanopyAt = 5000.0
 				TracedCell = newCell
 			}
@@ -880,7 +886,7 @@ func newerShineMethod(x int, y int, shineAmountForThisSquare float64) {
 
 		if cellAtSurface != nil && !hitSolid && cellAtSurface.Chloroplasts == true {
 			//fmt.Println("Giving juice to cell")
-			LogIfTraced(cellAtSurface, LOGTYPE_CELLEFFECT, "cell %d: Surface shine @ height %d \n", cellAtSurface.ID, z)
+			//	LogIfTraced(cellAtSurface, LOGTYPE_CELLEFFECT, "cell %d: Surface shine @ height %d \n", cellAtSurface.ID, z)
 			//fmt.Printf("cell %d: Surface shine of %6.1f @ height %d \n", cellAtSurface.ID, shineAmountLeft, z)
 			//PrintCurrentGenesOfCell(cellAtSurface)
 
@@ -913,7 +919,7 @@ func giveEnergyToNonSolidCellsAtThisLevel(x int, y int, z int, shineAmountForThi
 	}
 	var energyToEachCell = shineAmountForThisSquare / float64(numSurrounders)
 	for i := 0; i < numSurrounders; i++ {
-		LogIfTraced(surroundingCellsWithCanopiesAndMe[i], LOGTYPE_CELLEFFECT, "cell %d: Canopy shine @ height %d, 1/%d\n", surroundingCellsWithCanopiesAndMe[i].ID, z, numSurrounders)
+		//	LogIfTraced(surroundingCellsWithCanopiesAndMe[i], LOGTYPE_CELLEFFECT, "cell %d: Canopy shine @ height %d, 1/%d\n", surroundingCellsWithCanopiesAndMe[i].ID, z, numSurrounders)
 		surroundingCellsWithCanopiesAndMe[i].IncreaseEnergy(energyToEachCell)
 	}
 

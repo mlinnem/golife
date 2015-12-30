@@ -7,7 +7,7 @@ import (
 )
 
 //UI VARIABLES
-var LOGTYPES_ENABLED = []int{LOGTYPE_CELLEFFECT, LOGTYPE_PRINTGRID_GRID, LOGTYPE_PRINTGRID_SUMMARY, LOGTYPE_SPECIESREPORT, LOGTYPE_FINALSTATS, LOGTYPE_ERROR}
+var LOGTYPES_ENABLED = []int{LOGTYPE_PRINTGRID_GRID, LOGTYPE_PRINTGRID_SUMMARY, LOGTYPE_SPECIESREPORT, LOGTYPE_FINALSTATS, LOGTYPE_ERROR}
 
 var CELLEFFECT_ONLY_IF_TRACED = true
 
@@ -32,15 +32,15 @@ const (
 	LOGTYPE_CELLEFFECT             = iota
 )
 
-const PRINTGRID_EVERY_N_TURNS = 1
+const PRINTGRID_EVERY_N_TURNS = 100
 
 const DEFAULT_PRINTGRID_DEPTH = 0
 
-const SPECIES_DIVERGENCE_THRESHOLD = 1.75
+const SPECIES_DIVERGENCE_THRESHOLD = 3.0
 
 const BIGGRID_INCREMENT = 3
 
-const NUM_TOP_SPECIES_TO_PRINT = 8
+const NUM_TOP_SPECIES_TO_PRINT = 10
 
 //TODO: Better place for this?
 var SpeciesCounter = 0
@@ -75,13 +75,13 @@ func HasSignificantGeneticDivergence(cell *Cell) bool {
 	//TODO: Delete this crap
 
 	var ClockRateDiff = math.Abs(float64(cell.X_originalClockRate)-float64(cell.ClockRate)) / 200
-	var EnergyReproduceThresholdDiff = math.Abs(cell.X_originalEnergyReproduceThreshold-cell.EnergyReproduceThreshold) / 1000
-	var EnergySpentOnReproducingDiff = math.Abs(cell.X_originalEnergySpentOnReproducing-cell.EnergySpentOnReproducing) / 1000
-	var GrowCanopyAtDiff = math.Abs(float64(cell.X_originalGrowCanopyAt)-float64(cell.GrowCanopyAt)) / 1000
-	var GrowChloroplastsAtDiff = math.Abs(float64(cell.X_originalGrowChloroplastsAt)-float64(cell.GrowChloroplastsAt)) / 1000
-	var GrowDigestiveSystemAtDiff = math.Abs(float64(cell.X_originalGrowDigestiveSystemAt)-float64(cell.GrowDigestiveSystemAt)) / 1000
-	var GrowHeightAtDiff = math.Abs(float64(cell.X_originalGrowHeightAt)-float64(cell.GrowHeightAt)) / 1000
-	var GrowLegsAtDiff = math.Abs(float64(cell.X_originalGrowLegsAt)-float64(cell.GrowLegsAt)) / 1000
+	var EnergyReproduceThresholdDiff = math.Abs(cell.X_originalEnergyReproduceThreshold-cell.EnergyReproduceThreshold) / 3000
+	var EnergySpentOnReproducingDiff = math.Abs(cell.X_originalEnergySpentOnReproducing-cell.EnergySpentOnReproducing) / 3000
+	var GrowCanopyAtDiff = math.Abs(float64(cell.X_originalGrowCanopyAt)-float64(cell.GrowCanopyAt)) / 3000
+	var GrowChloroplastsAtDiff = math.Abs(float64(cell.X_originalGrowChloroplastsAt)-float64(cell.GrowChloroplastsAt)) / 3000
+	var GrowDigestiveSystemAtDiff = math.Abs(float64(cell.X_originalGrowDigestiveSystemAt)-float64(cell.GrowDigestiveSystemAt)) / 3000
+	var GrowHeightAtDiff = math.Abs(float64(cell.X_originalGrowHeightAt)-float64(cell.GrowHeightAt)) / 3000
+	var GrowLegsAtDiff = math.Abs(float64(cell.X_originalGrowLegsAt)-float64(cell.GrowLegsAt)) / 3000
 	var MoveChanceDiff = math.Abs(float64(cell.X_originalMoveChance)-float64(cell.MoveChance)) / 200 //reduced importance
 	var PercentChanceWaitDiff = math.Abs(float64(cell.X_originalPercentChanceWait)-float64(cell.PercentChanceWait)) / 100
 	var totalDiff = GrowDigestiveSystemAtDiff + GrowChloroplastsAtDiff + MoveChanceDiff + GrowLegsAtDiff + GrowHeightAtDiff + GrowCanopyAtDiff + ClockRateDiff + EnergyReproduceThresholdDiff + EnergySpentOnReproducingDiff + PercentChanceWaitDiff
@@ -112,6 +112,13 @@ func printCell(cell *Cell) {
 			//TODO: Might be nice to make this a specific loud color at some point
 			Log(LOGTYPE_PRINTGRID_GRID, "!")
 			Log(LOGTYPE_PRINTGRID_BIGGRID, "!")
+		} else if cell.IsAnimal() {
+			Log(LOGTYPE_PRINTGRID_GRID, colorStart+"@"+colorEnd)
+			Log(LOGTYPE_PRINTGRID_BIGGRID, colorStart+"@"+colorEnd)
+		} else if cell.Legs && cell.MoveChance > 0.0 {
+			//curious moving trees
+			Log(LOGTYPE_PRINTGRID_GRID, colorStart+"?"+colorEnd)
+			Log(LOGTYPE_PRINTGRID_BIGGRID, colorStart+"?"+colorEnd)
 		} else if cell.Canopy == true && cell.Height >= 1 {
 			//fmt.Println("BLOLOLOLOLO")
 			Log(LOGTYPE_PRINTGRID_GRID, colorStart+"X"+colorEnd)
