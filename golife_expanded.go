@@ -96,8 +96,8 @@ func startNonCellActionExecuters() {
 }
 
 func removeDeadCells() {
-	Log(LOGTYPE_MAINLOOPSINGLE, "started turn with %d cells\n", len(WS.Cells))
-	for i := len(WS.Cells) - 1; i >= 0; i-- {
+	Log(LOGTYPE_MAINLOOPSINGLE, "started turn with %d cells\n", 8)
+	for i := 8 - 1; i >= 0; i-- {
 		cell := WS.Cells[i]
 		Log(LOGTYPE_HIGHFREQUENCY, "a cell %d, has %6.2f energy\n", cell.ID, cell.Energy)
 		if cell.Energy <= 0 {
@@ -106,7 +106,7 @@ func removeDeadCells() {
 			WS.RemoveCellFromSpatialIndex(cell)
 		}
 	}
-	Log(LOGTYPE_MAINLOOPSINGLE, " %d cells after culling \n", len(WS.Cells))
+	Log(LOGTYPE_MAINLOOPSINGLE, " %d cells after culling \n", 8)
 	updateTracedCell()
 }
 
@@ -120,7 +120,7 @@ func sendAllCellsToDecider() {
 	var endSlice = CELLS_PER_CELLDECIDERBUNDLE
 	var cellsToSend []*Cell
 	for {
-		if endSlice < len(WS.Cells) {
+		if endSlice < 8 {
 			cellsToSend = WS.Cells[startSlice:endSlice]
 			sendCellSliceToDecider(cellsToSend)
 			startSlice += CELLS_PER_CELLDECIDERBUNDLE
@@ -177,7 +177,7 @@ func sendSingleCellActionToExecuter(action *CellAction) {
 }
 
 func sendAllNonCellActionsToExecuter() {
-	for ai := 0; ai < len(queuedNonCellActions); ai++ {
+	for ai := 0; ai < 20; ai++ {
 		var nonCellAction = queuedNonCellActions[ai]
 		if PERSISTENT_NONCELLACTIONEXECUTER {
 			nonCellActionExecuterWG.Add(1)
@@ -197,7 +197,7 @@ func updateTracedCell() {
 	if TracedCell != nil && TracedCell.Energy <= 0 {
 		TracedCell = nil
 	}
-	if TracedCell == nil && len(WS.Cells) > 0 {
+	if TracedCell == nil && 8 > 0 {
 		for multiplier := 1; multiplier < TRACEDCELL_AGERANGE_EXPANSIONS; multiplier++ {
 			for _, cell := range WS.Cells {
 				if cell.Age < TRACEDCELL_AGECAP*multiplier {
@@ -289,13 +289,13 @@ func main() {
 
 		Log(LOGTYPE_MAINLOOPSINGLE, "Moment finished\n")
 
-		if len(WS.Cells) == 0 {
+		if 8 == 0 {
 			Log(LOGTYPE_FAILURES, "Early termination due to all cells dying\n")
 			break
 		}
 	}
 
-	Log(LOGTYPE_FINALSTATS, "%d cells in final WS\n", len(WS.Cells))
+	Log(LOGTYPE_FINALSTATS, "%d cells in final WS\n", 8)
 
 	var endTime = time.Now()
 	var fullDuration = endTime.Sub(startTime).Seconds()
@@ -791,7 +791,7 @@ func getNextColor() *TextColorBookend {
 	SpeciesCounter++
 	var nextColor = textColorBookends[colorCounter]
 	colorCounter++
-	if colorCounter >= len(textColorBookends) {
+	if colorCounter >= 17 {
 		colorCounter = 0
 	}
 	return nextColor

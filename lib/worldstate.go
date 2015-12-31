@@ -6,13 +6,13 @@ var WS *WorldState
 const MAX_CELL_COUNT = 90000
 
 const PERCENT_DAYLIGHT = 50 //will be offset by increase shine during day if lowered
-const SHINE_ENERGY_AMOUNT = 2.66
+const SHINE_ENERGY_AMOUNT = 4.0
 
-const INITIAL_CELL_COUNT = 500
+const INITIAL_CELL_COUNT = 1000
 
-const GRID_DEPTH = 3
-const GRID_WIDTH = 275
-const GRID_HEIGHT = 55
+const GRID_DEPTH = 10
+const GRID_WIDTH = 130
+const GRID_HEIGHT = 25
 
 const MAX_TRIES_TO_FIND_EMPTY_GRID_COORD = 50
 

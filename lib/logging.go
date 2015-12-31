@@ -32,15 +32,15 @@ const (
 	LOGTYPE_CELLEFFECT             = iota
 )
 
-const PRINTGRID_EVERY_N_TURNS = 100
+const PRINTGRID_EVERY_N_TURNS = 50
 
 const DEFAULT_PRINTGRID_DEPTH = 0
 
-const SPECIES_DIVERGENCE_THRESHOLD = 3.0
+const SPECIES_DIVERGENCE_THRESHOLD = 1.5
 
 const BIGGRID_INCREMENT = 3
 
-const NUM_TOP_SPECIES_TO_PRINT = 10
+const NUM_TOP_SPECIES_TO_PRINT = 5
 
 //TODO: Better place for this?
 var SpeciesCounter = 0
@@ -51,10 +51,18 @@ func Log(logType int, message string, params ...interface{}) {
 	}
 }
 
-func LogIfTraced(cell *Cell, logType int, message string, params ...interface{}) {
+func LogIfTraced(cell *Cell, logType int, message string, params ...interface{}) bool {
 	if (cell != nil && CELLEFFECT_ONLY_IF_TRACED == false) || (TracedCell != nil && cell.ID == TracedCell.ID) {
 		Log(logType, "TRACED: "+message, params...)
+		return true
 	}
+	return false
+}
+
+//should never be called if this goes through m4 macro system
+func Debug(params ...interface{}) {
+	//This is used by macro processor m4 in makefile. It removes the line that calls this in some situations
+	return
 }
 
 func containsInt(ints []int, theInt int) bool {
