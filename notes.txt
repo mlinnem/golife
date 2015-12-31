@@ -1,6 +1,0 @@
-//energy-to-carbon-fixation
-//base-energy-to-carbon-fixation
-
-//percent-energy-to-material-fixation
-//material (free)
-//material (locked)

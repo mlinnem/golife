@@ -38,17 +38,17 @@ func (ws *WorldState) CanMoveHere(cell *Cell, targetX int, targetY int, targetZ 
 	for i := 0; i < cell.Height+1; i++ {
 		var solidCell, solidCellHere = ws.GetSolidCellAt(targetX, targetY, targetZ+i)
 		if solidCellHere {
-			Debug(LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: MOVE LOCATION STATUS %d, %d, %d is occupied by solid cell %d with energy %6.1f\n", cell.ID, targetX, targetY, targetZ+i, solidCell.ID, solidCell.Energy))
+			
 			return false
 		} else {
-			Debug(LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: MOVE LOCATION STATUS... Checked %d, %d, %d for solid, but nothing found\n", cell.ID, targetX, targetY, targetZ+i))
+			
 
 		}
 	}
 
 	var coveringCell, coveringCellHere = ws.GetCoveringCellAt(targetX, targetY, cell.Z+cell.Height)
 	if coveringCellHere {
-		Debug(LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: MOVE LOCATION STATUS %d, %d, %d is occupied by covering cell %d with energy %6.1f\n", cell.ID, targetX, targetY, cell.Z+cell.Height, coveringCell.ID, coveringCell.Energy))
+		
 		return false
 	}
 

@@ -47,8 +47,22 @@ const NUM_TOP_SPECIES_TO_PRINT = 5
 //TODO: Better place for this?
 var SpeciesCounter = 0
 
+func Log(logType int, message string, params ...interface{}) {
+	if containsInt(LOGTYPES_ENABLED, logType) {
+		fmt.Printf(message, params...)
+	}
+}
+
+func LogIfTraced(cell *Cell, logType int, message string, params ...interface{}) bool {
+	if DEBUG && ((cell != nil && CELLEFFECT_ONLY_IF_TRACED == false) || (TracedCell != nil && cell.ID == TracedCell.ID)) {
+		Log(logType, "TRACED: "+message, params...)
+		return true
+	}
+	return false
+}
+
 //should never be called if this goes through m4 macro system
-func Debug(params ...interface{}) {
+func  {
 	//This is used by macro processor m4 in makefile. It removes the line that calls this in some situations
 	return
 }

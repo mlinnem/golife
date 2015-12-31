@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/davecheney/profile"
-	. "github.com/mlinnem/golife/main/lib"
+	. "github.com/mlinnem/golife/main/lib2"
 )
 
 const RANDOM_SEED = true
@@ -96,8 +96,8 @@ func startNonCellActionExecuters() {
 }
 
 func removeDeadCells() {
-	Log(LOGTYPE_MAINLOOPSINGLE, "started turn with %d cells\n", 8)
-	for i := 8 - 1; i >= 0; i-- {
+	Log(LOGTYPE_MAINLOOPSINGLE, "started turn with %d cells\n", len(WS.Cells))
+	for i := len(WS.Cells) - 1; i >= 0; i-- {
 		cell := WS.Cells[i]
 		Log(LOGTYPE_HIGHFREQUENCY, "a cell %d, has %6.2f energy\n", cell.ID, cell.Energy)
 		if cell.Energy <= 0 {
@@ -106,7 +106,7 @@ func removeDeadCells() {
 			WS.RemoveCellFromSpatialIndex(cell)
 		}
 	}
-	Log(LOGTYPE_MAINLOOPSINGLE, " %d cells after culling \n", 8)
+	Log(LOGTYPE_MAINLOOPSINGLE, " %d cells after culling \n", len(WS.Cells))
 	updateTracedCell()
 }
 
@@ -120,7 +120,7 @@ func sendAllCellsToDecider() {
 	var endSlice = CELLS_PER_CELLDECIDERBUNDLE
 	var cellsToSend []*Cell
 	for {
-		if endSlice < 8 {
+		if endSlice < len(WS.Cells) {
 			cellsToSend = WS.Cells[startSlice:endSlice]
 			sendCellSliceToDecider(cellsToSend)
 			startSlice += CELLS_PER_CELLDECIDERBUNDLE
@@ -177,7 +177,7 @@ func sendSingleCellActionToExecuter(action *CellAction) {
 }
 
 func sendAllNonCellActionsToExecuter() {
-	for ai := 0; ai < 20; ai++ {
+	for ai := 0; ai < len(queuedNonCellActions); ai++ {
 		var nonCellAction = queuedNonCellActions[ai]
 		if PERSISTENT_NONCELLACTIONEXECUTER {
 			nonCellActionExecuterWG.Add(1)
@@ -197,7 +197,7 @@ func updateTracedCell() {
 	if TracedCell != nil && TracedCell.Energy <= 0 {
 		TracedCell = nil
 	}
-	if TracedCell == nil && 8 > 0 {
+	if TracedCell == nil && len(WS.Cells) > 0 {
 		for multiplier := 1; multiplier < TRACEDCELL_AGERANGE_EXPANSIONS; multiplier++ {
 			for _, cell := range WS.Cells {
 				if cell.Age < TRACEDCELL_AGECAP*multiplier {
@@ -289,13 +289,13 @@ func main() {
 
 		Log(LOGTYPE_MAINLOOPSINGLE, "Moment finished\n")
 
-		if 8 == 0 {
+		if len(WS.Cells) == 0 {
 			Log(LOGTYPE_FAILURES, "Early termination due to all cells dying\n")
 			break
 		}
 	}
 
-	Log(LOGTYPE_FINALSTATS, "%d cells in final WS\n", 8)
+	Log(LOGTYPE_FINALSTATS, "%d cells in final WS\n", len(WS.Cells))
 
 	var endTime = time.Now()
 	var fullDuration = endTime.Sub(startTime).Seconds()
@@ -366,7 +366,7 @@ func decideForTheseCells(cellDeciderBundle []*Cell, asynchronous bool) {
 		} else {
 			var cellAction = decideSingleCell(cell)
 			if cellAction != nil {
-				LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: sending action '%s'\n", cell.ID, getCellActionName(cellAction.actionType))
+				Debug(LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: sending action '%s'\n", cell.ID, getCellActionName(cellAction.actionType)))
 				//TODO: Is this safe when executer is persistent?
 				if SERIAL_ACTIONTOEXECUTION_BRIDGE {
 					serialQueuedCellActions[serialQueuedCellActionsLength] = cellAction
@@ -375,7 +375,7 @@ func decideForTheseCells(cellDeciderBundle []*Cell, asynchronous bool) {
 					queuedCellActions <- cellAction
 				}
 			} else {
-				LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: NO ACTION\n", cell.ID)
+				Debug(LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: NO ACTION\n", cell.ID))
 			}
 		}
 	}
@@ -409,7 +409,7 @@ func decideSingleCell(cell *Cell) *CellAction {
 		//no action at all. Hopefully don't need to submit a null action
 	}
 
-	LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: PAY THINKING\n", cell.ID)
+	Debug(LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: PAY THINKING\n", cell.ID))
 	cell.DecreaseEnergy(THINKING_COST)
 	cell.IncreaseWaitTime(cell.ClockRate - 1)
 	return cellAction
@@ -567,13 +567,13 @@ func reproduce(cell *Cell) {
 		var xTry = cell.X + direction.X
 		var yTry = cell.Y + direction.Y
 		if !WS.IsSolidOrCovered(xTry, yTry, z) {
-			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Making baby from %d, %d -> %d, %d\n", cell.ID, cell.X, cell.Y, xTry, yTry)
+			Debug(LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d: Making baby from %d, %d -> %d, %d\n", cell.ID, cell.X, cell.Y, xTry, yTry))
 			var babyCell = CellPool.Borrow()
 			babyCell.Energy = cell.EnergySpentOnReproducing - REPRODUCE_COST
 			//TODO: This should be a function, probably needs locking if parallelized
 			babyCell.ID = IDCounter
 			IDCounter++
-			LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d born with %f energy\n", babyCell.ID, babyCell.Energy)
+			Debug(LogIfTraced(cell, LOGTYPE_CELLEFFECT, "cell %d born with %f energy\n", babyCell.ID, babyCell.Energy))
 			babyCell.X = xTry
 			babyCell.Y = yTry
 			babyCell.Z = 0
@@ -791,7 +791,7 @@ func getNextColor() *TextColorBookend {
 	SpeciesCounter++
 	var nextColor = textColorBookends[colorCounter]
 	colorCounter++
-	if colorCounter >= 17 {
+	if colorCounter >= len(textColorBookends) {
 		colorCounter = 0
 	}
 	return nextColor
@@ -886,7 +886,7 @@ func newerShineMethod(x int, y int, shineAmountForThisSquare float64) {
 
 		if cellAtSurface != nil && !hitSolid && cellAtSurface.Chloroplasts == true {
 			//fmt.Println("Giving juice to cell")
-			LogIfTraced(cellAtSurface, LOGTYPE_CELLEFFECT, "cell %d: Surface shine @ height %d \n", cellAtSurface.ID, z)
+			Debug(LogIfTraced(cellAtSurface, LOGTYPE_CELLEFFECT, "cell %d: Surface shine @ height %d \n", cellAtSurface.ID, z))
 			//fmt.Printf("cell %d: Surface shine of %6.1f @ height %d \n", cellAtSurface.ID, shineAmountLeft, z)
 			//PrintCurrentGenesOfCell(cellAtSurface)
 
@@ -919,7 +919,7 @@ func giveEnergyToNonSolidCellsAtThisLevel(x int, y int, z int, shineAmountForThi
 	}
 	var energyToEachCell = shineAmountForThisSquare / float64(numSurrounders)
 	for i := 0; i < numSurrounders; i++ {
-		LogIfTraced(surroundingCellsWithCanopiesAndMe[i], LOGTYPE_CELLEFFECT, "cell %d: Canopy shine @ height %d, 1/%d\n", surroundingCellsWithCanopiesAndMe[i].ID, z, numSurrounders)
+		Debug(LogIfTraced(surroundingCellsWithCanopiesAndMe[i], LOGTYPE_CELLEFFECT, "cell %d: Canopy shine @ height %d, 1/%d\n", surroundingCellsWithCanopiesAndMe[i].ID, z, numSurrounders))
 		surroundingCellsWithCanopiesAndMe[i].IncreaseEnergy(energyToEachCell)
 	}
 
